@@ -6,6 +6,19 @@ import importlib.util
 from math import ceil
 import os
 
+# Limit native linear-algebra pools before importing NumPy, SciPy or scikit-learn.
+# This is intentionally in code as well as in deployment secrets, so a fresh
+# Streamlit build remains safe even when no environment variables are configured.
+for _thread_variable in (
+    "OPENBLAS_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "BLIS_NUM_THREADS",
+):
+    os.environ.setdefault(_thread_variable, "1")
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -95,7 +108,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.1.0"
+APP_VERSION = "4.2.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 8
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 6
 FULL_GATE_DIAGRAM_LIMIT = 5_000
