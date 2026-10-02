@@ -8,3 +8,7 @@ joblib==1.5.2
 pyarrow==17.0.0
 streamlit==1.64.0
 qiskit==1.4.5
+
+# Adapter ufficiale LRZ/MQSS. Installato nel deployment pubblico affinche la
+# connessione a EQE1 sia disponibile senza comandi locali sul computer utente.
+mqss-qiskit==0.2.0; python_version >= "3.9" and python_version < "3.14"
