@@ -1,0 +1,2 @@
+# Simulazione locale del circuito completo (ideale o con rumore)
+qiskit-aer>=0.17,<1

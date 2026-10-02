@@ -1,0 +1,2 @@
+# IonQ Quantum Cloud: simulatore e QPU
+qiskit-ionq>=1.0,<2

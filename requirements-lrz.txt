@@ -1,0 +1,2 @@
+# Adapter ufficiale Munich Quantum Software Stack (Python >= 3.9 e < 3.14)
+mqss-qiskit; python_version >= "3.9" and python_version < "3.14"

@@ -1,0 +1,8 @@
+# Installazione cumulativa mantenuta per compatibilita.
+# Su macOS/Conda e consigliato usare Installa_Provider_Quantistici.command,
+# che installa prima i componenti binari necessari ad Amazon Braket.
+-r requirements-simulators.txt
+-r requirements-lrz.txt
+-r requirements-aws.txt
+-r requirements-ionq.txt
+-r requirements-ibm.txt

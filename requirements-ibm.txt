@@ -1,0 +1,2 @@
+# IBM Quantum Platform e primitive Sampler V2
+qiskit-ibm-runtime>=0.47,<1
