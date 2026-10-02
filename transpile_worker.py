@@ -11,7 +11,35 @@ import json
 from pathlib import Path
 from time import perf_counter
 
+import numpy as np
 from qiskit import qpy, transpile
+from qiskit.quantum_info import Operator
+
+from quantum_pgm import subspace_equivalence_metrics
+
+
+def _unitary_part(circuit):
+    unitary = circuit.remove_final_measurements(inplace=False)
+    unitary.data = [
+        instruction
+        for instruction in unitary.data
+        if instruction.operation.name != "barrier"
+    ]
+    return unitary
+
+
+def _subspace_certificate(reference, candidate, dimension: int) -> tuple[float, float]:
+    """Return phase-insensitive operator error and fidelity on used inputs."""
+
+    reference_matrix = np.asarray(Operator(_unitary_part(reference)).data)
+    candidate_matrix = np.asarray(Operator(_unitary_part(candidate)).data)
+    if reference_matrix.shape != candidate_matrix.shape:
+        raise ValueError("I circuiti da confrontare hanno dimensioni differenti.")
+    if dimension < 1 or dimension > reference_matrix.shape[1]:
+        raise ValueError("Dimensione del sottospazio di ingresso non valida.")
+    return subspace_equivalence_metrics(
+        reference_matrix, candidate_matrix, dimension
+    )
 
 
 def main() -> None:
@@ -22,6 +50,11 @@ def main() -> None:
     parser.add_argument("--diagram", required=True)
     parser.add_argument("--fold", type=int, default=120)
     parser.add_argument("--max-diagram-gates", type=int, default=5000)
+    parser.add_argument("--optimization-level", type=int, choices=range(4), default=0)
+    parser.add_argument("--seed-transpiler", type=int, default=42)
+    parser.add_argument("--reference")
+    parser.add_argument("--input-subspace-dimension", type=int)
+    parser.add_argument("--equivalence-tolerance", type=float, default=1e-9)
     args = parser.parse_args()
 
     with Path(args.input).open("rb") as handle:
@@ -33,15 +66,34 @@ def main() -> None:
     transpiled = transpile(
         circuits[0],
         basis_gates=["rz", "sx", "x", "cx"],
-        # Level 0 deliberately avoids optional native optimization passes that have
-        # caused SIGSEGV on some macOS/Qiskit combinations. The synthesis remains exact.
-        optimization_level=0,
-        seed_transpiler=42,
+        optimization_level=args.optimization_level,
+        seed_transpiler=args.seed_transpiler,
     )
     elapsed = perf_counter() - started
     size = int(transpiled.size())
     with Path(args.output).open("wb") as handle:
         qpy.dump(transpiled, handle)
+
+    equivalence_error = None
+    equivalence_fidelity = None
+    equivalence_certified = None
+    if args.reference:
+        with Path(args.reference).open("rb") as handle:
+            reference_circuits = qpy.load(handle)
+        if len(reference_circuits) != 1:
+            raise ValueError(
+                "Il riferimento QPY deve contenere esattamente un circuito."
+            )
+        if args.input_subspace_dimension is None:
+            raise ValueError("Dimensione del sottospazio di ingresso mancante.")
+        equivalence_error, equivalence_fidelity = _subspace_certificate(
+            reference_circuits[0],
+            transpiled,
+            args.input_subspace_dimension,
+        )
+        equivalence_certified = bool(
+            equivalence_error <= args.equivalence_tolerance
+        )
 
     report = {
         "depth": int(transpiled.depth()),
@@ -55,6 +107,14 @@ def main() -> None:
         "diagram_gate_limit": int(args.max_diagram_gates),
         "num_qubits": int(transpiled.num_qubits),
         "num_clbits": int(transpiled.num_clbits),
+        "optimization_level": int(args.optimization_level),
+        "seed_transpiler": int(args.seed_transpiler),
+        "equivalence_error": equivalence_error,
+        "equivalence_tolerance": (
+            float(args.equivalence_tolerance) if args.reference else None
+        ),
+        "equivalence_certified": equivalence_certified,
+        "subspace_fidelity": equivalence_fidelity,
     }
     Path(args.report).write_text(json.dumps(report), encoding="utf-8")
 

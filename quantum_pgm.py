@@ -81,6 +81,35 @@ class IsolatedTranspilation:
     diagram_text: str | None
     transpiled_qpy: bytes | None
     return_code: int | None
+    equivalence_error: float | None = None
+    equivalence_tolerance: float | None = None
+    equivalence_certified: bool | None = None
+    subspace_fidelity: float | None = None
+    optimization_level: int | None = None
+    seed_transpiler: int | None = None
+
+
+def subspace_equivalence_metrics(
+    reference_matrix: NDArray,
+    candidate_matrix: NDArray,
+    input_dimension: int,
+) -> tuple[float, float]:
+    """Return global-phase-insensitive error and fidelity on valid inputs."""
+
+    reference = np.asarray(reference_matrix, dtype=np.complex128)
+    candidate = np.asarray(candidate_matrix, dtype=np.complex128)
+    if reference.ndim != 2 or reference.shape != candidate.shape:
+        raise ValueError("Le matrici da confrontare devono avere la stessa forma.")
+    if input_dimension < 1 or input_dimension > reference.shape[1]:
+        raise ValueError("Dimensione del sottospazio di ingresso non valida.")
+    reference_action = reference[:, :input_dimension]
+    candidate_action = candidate[:, :input_dimension]
+    overlap = np.vdot(reference_action, candidate_action)
+    if abs(overlap) > 0.0:
+        candidate_action = candidate_action / (overlap / abs(overlap))
+    error = float(np.linalg.norm(reference_action - candidate_action, ord=2))
+    fidelity = float(abs(overlap) ** 2 / float(input_dimension**2))
+    return error, min(1.0, max(0.0, fidelity))
 
 
 def symbolic_dilation(resources: CircuitResources) -> NaimarkDilation:
@@ -359,6 +388,39 @@ def build_qiskit_circuit(dilation: NaimarkDilation) -> Any:
     return circuit
 
 
+def build_qiskit_isometry_circuit(dilation: NaimarkDilation) -> Any:
+    """Build the same PGM on its reachable input subspace using an isometry.
+
+    Only columns acting on ``|0...0>_out tensor |psi>_sys`` are physically used.
+    Synthesizing those columns directly avoids paying for an arbitrary unitary
+    completion while preserving the PGM probabilities for every valid input.
+    """
+
+    if dilation.isometry is None:
+        raise ValueError("L'isometria esatta non è stata materializzata.")
+    from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
+    from qiskit.circuit.library import Isometry
+
+    resources = dilation.resources
+    system = QuantumRegister(resources.system_qubits, "sys")
+    outcome = QuantumRegister(resources.outcome_qubits, "out")
+    classical = ClassicalRegister(resources.outcome_qubits, "m")
+    circuit = QuantumCircuit(system, outcome, classical, name="PGM_Naimark_isometry")
+    circuit.barrier()
+    instruction = Isometry(
+        dilation.isometry,
+        # The n-m output ancillas are implicit in the rectangular isometry.
+        # This argument is only for *additional* helper ancillas.
+        num_ancillas_zero=0,
+        num_ancillas_dirty=0,
+        epsilon=1e-12,
+    )
+    circuit.append(instruction, list(system) + list(outcome))
+    circuit.barrier()
+    circuit.measure(outcome, classical)
+    return circuit
+
+
 def circuit_svg(dilation: NaimarkDilation) -> str:
     """Draw the logical circuit as browser-native SVG, without Matplotlib/Pillow."""
 
@@ -482,9 +544,14 @@ def generic_unitary_cnot_upper_bound(qubit_count: int) -> int:
 def isolated_transpile_qpy(
     qpy_payload: bytes,
     *,
+    reference_qpy_payload: bytes | None = None,
+    input_subspace_dimension: int | None = None,
     timeout_seconds: int = 180,
     max_diagram_gates: int = 5000,
     fold: int = 120,
+    optimization_level: int = 0,
+    seed_transpiler: int = 42,
+    equivalence_tolerance: float = 1e-9,
 ) -> IsolatedTranspilation:
     """Transpile in a child process so a native crash cannot kill Streamlit."""
 
@@ -520,6 +587,7 @@ def isolated_transpile_qpy(
         output_path = directory / "output.qpy"
         report_path = directory / "report.json"
         diagram_path = directory / "circuit.txt"
+        reference_path = directory / "reference.qpy"
         input_path.write_bytes(qpy_payload)
         command = [
             sys.executable,
@@ -536,7 +604,28 @@ def isolated_transpile_qpy(
             str(fold),
             "--max-diagram-gates",
             str(max_diagram_gates),
+            "--optimization-level",
+            str(int(optimization_level)),
+            "--seed-transpiler",
+            str(int(seed_transpiler)),
+            "--equivalence-tolerance",
+            str(float(equivalence_tolerance)),
         ]
+        if reference_qpy_payload is not None:
+            if input_subspace_dimension is None or input_subspace_dimension < 1:
+                raise ValueError(
+                    "La dimensione del sottospazio è necessaria per certificare "
+                    "l'equivalenza."
+                )
+            reference_path.write_bytes(reference_qpy_payload)
+            command.extend(
+                [
+                    "--reference",
+                    str(reference_path),
+                    "--input-subspace-dimension",
+                    str(int(input_subspace_dimension)),
+                ]
+            )
         try:
             completed = subprocess.run(
                 command,
@@ -598,6 +687,16 @@ def isolated_transpile_qpy(
                     ),
                     transpiled_qpy=output_path.read_bytes(),
                     return_code=completed.returncode,
+                    equivalence_error=partial_report.get("equivalence_error"),
+                    equivalence_tolerance=partial_report.get(
+                        "equivalence_tolerance"
+                    ),
+                    equivalence_certified=partial_report.get(
+                        "equivalence_certified"
+                    ),
+                    subspace_fidelity=partial_report.get("subspace_fidelity"),
+                    optimization_level=partial_report.get("optimization_level"),
+                    seed_transpiler=partial_report.get("seed_transpiler"),
                 )
             return IsolatedTranspilation(
                 status="crashed",
@@ -643,6 +742,12 @@ def isolated_transpile_qpy(
             diagram_text=diagram,
             transpiled_qpy=output_path.read_bytes(),
             return_code=completed.returncode,
+            equivalence_error=report.get("equivalence_error"),
+            equivalence_tolerance=report.get("equivalence_tolerance"),
+            equivalence_certified=report.get("equivalence_certified"),
+            subspace_fidelity=report.get("subspace_fidelity"),
+            optimization_level=report.get("optimization_level"),
+            seed_transpiler=report.get("seed_transpiler"),
         )
 
 

@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.1.0**
+**Versione 4.4.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -18,7 +18,18 @@ training costruisce inoltre una dilatazione di Naimark (chiamata *Neumark dilati
 nel paper) della PGM, ne disegna il circuito Qiskit e verifica le sue probabilità
 sul test set.
 
-## Novità della versione 4.1.0
+## Novità della versione 4.4.0
+
+- La sezione **Ottimizzazione certificata** sintetizza direttamente l'isometria
+  di Naimark, confronta tre livelli del transpiler e seleziona il circuito con
+  meno porte entangling, poi minore profondità e minore numero totale di porte.
+- Il circuito ottimizzato viene accettato soltanto se l'errore operatoriale,
+  calcolato sull'intero sottospazio degli ingressi con `out=0`, non supera
+  `1e-9`. La verifica è quindi più forte di un controllo sul solo test set.
+- L'interfaccia confronta porte totali, CX, profondità, riduzione percentuale,
+  errore massimo e fedeltà, con export QPY e diagramma completo quando leggibile.
+- Anche i circuiti eseguiti su Aer e hardware remoto usano l'isometria; il
+  preflight remoto ripete la certificazione prima di abilitare l'invio.
 
 - In **Classificazione test** la corrispondenza tra bitstring misurata e classe è
   nuovamente visibile in primo piano, per esempio `000 → classe 1`.
@@ -51,10 +62,10 @@ Su macOS, dopo la prima installazione, si può anche fare doppio clic su
 avvia Streamlit con `faulthandler`. Se macOS blocca il primo avvio, usare tasto
 destro → **Apri** una sola volta.
 
-I connettori hardware sono opzionali. Su macOS il metodo consigliato è fare
-doppio clic su `Installa_Provider_Quantistici.command` e scegliere LRZ, Amazon
-AWS, Qiskit Aer, IBM Quantum, IonQ oppure l'installazione completa. L'installazione
-separata impedisce che un problema di un provider blocchi gli altri. In alternativa:
+Il `requirements.txt` principale include le versioni compatibili e bloccate di
+LRZ, Amazon AWS, Qiskit Aer, IBM Quantum e IonQ. I file separati restano utili
+per installare o riparare un solo provider su macOS tramite
+`Installa_Provider_Quantistici.command`:
 
 ```bash
 python -m pip install -r requirements-simulators.txt
@@ -162,6 +173,8 @@ Nell'interfaccia sono disponibili:
 - il confronto tra le predizioni del circuito e quelle di r-PGM;
 - il download del diagramma SVG, del circuito QPY e delle matrici NPZ;
 - fino a 6 qubit, una sintesi isolata nella base generica `rz`, `sx`, `x`, `cx`;
+- l'ottimizzazione isometrica con confronto originale/ottimizzato e certificato
+  di equivalenza sull'intero sottospazio PGM;
 - il circuito completo su più righe fino a 5.000 porte e, oltre tale soglia, il
   conteggio esatto delle porte oppure un limite superiore prudenziale.
 

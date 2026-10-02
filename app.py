@@ -62,6 +62,7 @@ from pgm_core import MethodResult, stable_predictions, symmetric_feature_map
 from quantum_pgm import (
     build_naimark_dilation,
     build_qiskit_circuit,
+    build_qiskit_isometry_circuit,
     build_reduced_pgm_measurement,
     circuit_svg,
     dilation_npz_bytes,
@@ -109,7 +110,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.3.0"
+APP_VERSION = "4.4.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 8
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 6
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -161,13 +162,58 @@ def transpile_in_isolated_process(
     qpy_payload: bytes,
     timeout_seconds: int,
     max_diagram_gates: int,
+    *,
+    reference_qpy_payload: bytes | None = None,
+    input_subspace_dimension: int | None = None,
+    optimization_level: int = 0,
+    seed_transpiler: int = 42,
 ):
     return isolated_transpile_qpy(
         qpy_payload,
+        reference_qpy_payload=reference_qpy_payload,
+        input_subspace_dimension=input_subspace_dimension,
         timeout_seconds=timeout_seconds,
         max_diagram_gates=max_diagram_gates,
         fold=120,
+        optimization_level=optimization_level,
+        seed_transpiler=seed_transpiler,
     )
+
+
+def _entangling_gate_count(report) -> int:
+    return int(
+        sum(
+            report.gate_counts.get(name, 0)
+            for name in ("cx", "cz", "ecr", "rzz", "iswap", "swap")
+        )
+    )
+
+
+def _best_certified_synthesis(reports):
+    certified = [
+        report
+        for report in reports
+        if report.status in {"success", "partial"}
+        and report.equivalence_certified is True
+        and report.size is not None
+        and report.depth is not None
+    ]
+    if not certified:
+        return None
+    return min(
+        certified,
+        key=lambda report: (
+            _entangling_gate_count(report),
+            report.depth,
+            report.size,
+        ),
+    )
+
+
+def _reduction_percent(original: int, optimized: int) -> float:
+    if original <= 0:
+        return 0.0
+    return 100.0 * (original - optimized) / original
 
 
 def complexity_frame(rows) -> pd.DataFrame:
@@ -843,6 +889,228 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 "Il crash è rimasto confinato nel processo di sintesi: "
                                 "Streamlit e tutti i risultati del training restano attivi."
                             )
+
+                    st.divider()
+                    st.markdown("#### Ottimizzazione certificata")
+                    st.write(
+                        "L'ottimizzazione sintetizza direttamente l'isometria di "
+                        "Naimark, confronta tre strategie e conserva quella con meno "
+                        "porte entangling. Il risultato viene accettato soltanto se "
+                        "l'azione coincide con U_PGM su ogni ingresso valido, non "
+                        "soltanto sui campioni del test set."
+                    )
+                    st.caption(
+                        "Fuori dal sottospazio con il registro out inizializzato a zero "
+                        "le due estensioni unitarie possono differire: quella parte non "
+                        "è mai utilizzata dalla PGM."
+                    )
+                    if st.button(
+                        "Ottimizza e certifica equivalenza",
+                        type="primary",
+                        key=f"optimize_{synthesis_id}",
+                    ):
+                        with st.spinner(
+                            "Sintesi originale, ricerca del circuito più corto e "
+                            "certificazione numerica in processi isolati..."
+                        ):
+                            baseline_report = None
+                            if (
+                                saved_synthesis
+                                and saved_synthesis["id"] == synthesis_id
+                                and saved_synthesis["report"].status
+                                in {"success", "partial"}
+                            ):
+                                baseline_report = saved_synthesis["report"]
+                            if baseline_report is None:
+                                baseline_report = transpile_in_isolated_process(
+                                    logical_qpy,
+                                    300 if resources.total_qubits == 6 else 180,
+                                    FULL_GATE_DIAGRAM_LIMIT,
+                                )
+
+                            optimized_logical = build_qiskit_isometry_circuit(
+                                dilation
+                            )
+                            optimized_logical_qpy = qpy_bytes(optimized_logical)
+                            candidate_reports = []
+                            for candidate_level, candidate_seed in (
+                                (1, 42),
+                                (2, 42),
+                                (3, 42),
+                            ):
+                                candidate_reports.append(
+                                    transpile_in_isolated_process(
+                                        optimized_logical_qpy,
+                                        300
+                                        if resources.total_qubits == 6
+                                        else 180,
+                                        FULL_GATE_DIAGRAM_LIMIT,
+                                        reference_qpy_payload=logical_qpy,
+                                        input_subspace_dimension=(
+                                            resources.padded_system_dimension
+                                        ),
+                                        optimization_level=candidate_level,
+                                        seed_transpiler=candidate_seed,
+                                    )
+                                )
+                            best_report = _best_certified_synthesis(
+                                candidate_reports
+                            )
+                        st.session_state["certified_optimization"] = {
+                            "id": synthesis_id,
+                            "baseline": baseline_report,
+                            "best": best_report,
+                            "attempts": candidate_reports,
+                        }
+
+                    saved_optimization = st.session_state.get(
+                        "certified_optimization"
+                    )
+                    if (
+                        saved_optimization
+                        and saved_optimization["id"] == synthesis_id
+                    ):
+                        baseline_report = saved_optimization["baseline"]
+                        best_report = saved_optimization["best"]
+                        attempts = saved_optimization["attempts"]
+                        if (
+                            baseline_report.status not in {"success", "partial"}
+                            or baseline_report.size is None
+                            or baseline_report.depth is None
+                        ):
+                            st.error(
+                                "Non è stato possibile sintetizzare il circuito "
+                                "originale di riferimento. Nessuna ottimizzazione è "
+                                "stata dichiarata equivalente."
+                            )
+                        elif best_report is None:
+                            st.error(
+                                "Nessuno dei tentativi ha superato la certificazione. "
+                                "Il circuito originale resta invariato e utilizzabile."
+                            )
+                            with st.expander("Dettagli dei tentativi", expanded=False):
+                                st.dataframe(
+                                    pd.DataFrame(
+                                        [
+                                            {
+                                                "Livello": report.optimization_level,
+                                                "Stato": report.status,
+                                                "Errore": report.equivalence_error,
+                                                "Messaggio": report.message,
+                                            }
+                                            for report in attempts
+                                        ]
+                                    ),
+                                    hide_index=True,
+                                    width="stretch",
+                                )
+                        else:
+                            original_cx = _entangling_gate_count(baseline_report)
+                            optimized_cx = _entangling_gate_count(best_report)
+                            comparison = pd.DataFrame(
+                                [
+                                    {
+                                        "Indicatore": "Porte totali",
+                                        "Originale": baseline_report.size,
+                                        "Ottimizzato": best_report.size,
+                                        "Riduzione": (
+                                            f"{_reduction_percent(baseline_report.size, best_report.size):.1f}%"
+                                        ),
+                                    },
+                                    {
+                                        "Indicatore": "CX / porte entangling",
+                                        "Originale": original_cx,
+                                        "Ottimizzato": optimized_cx,
+                                        "Riduzione": (
+                                            f"{_reduction_percent(original_cx, optimized_cx):.1f}%"
+                                        ),
+                                    },
+                                    {
+                                        "Indicatore": "Profondità",
+                                        "Originale": baseline_report.depth,
+                                        "Ottimizzato": best_report.depth,
+                                        "Riduzione": (
+                                            f"{_reduction_percent(baseline_report.depth, best_report.depth):.1f}%"
+                                        ),
+                                    },
+                                ]
+                            )
+                            st.success(
+                                "Equivalenza certificata sull'intero sottospazio PGM. "
+                                "Classi, probabilità teoriche e accuratezza restano "
+                                "invariate entro la tolleranza indicata."
+                            )
+                            certificate_columns = st.columns(3)
+                            certificate_columns[0].metric(
+                                "Errore massimo",
+                                f"{best_report.equivalence_error:.3e}",
+                            )
+                            certificate_columns[1].metric(
+                                "Tolleranza",
+                                f"{best_report.equivalence_tolerance:.1e}",
+                            )
+                            certificate_columns[2].metric(
+                                "Fedeltà sottospazio",
+                                f"{best_report.subspace_fidelity:.12f}",
+                            )
+                            st.dataframe(
+                                comparison, hide_index=True, width="stretch"
+                            )
+                            st.caption(
+                                f"Migliore sintesi: livello "
+                                f"{best_report.optimization_level}, seed "
+                                f"{best_report.seed_transpiler}. Criterio: minimo numero "
+                                "di porte entangling, poi profondità e porte totali."
+                            )
+                            with st.expander(
+                                "Circuito ottimizzato e conteggio porte",
+                                expanded=False,
+                            ):
+                                st.dataframe(
+                                    pd.DataFrame(
+                                        [
+                                            {"Gate": name, "Numero": count}
+                                            for name, count in sorted(
+                                                best_report.gate_counts.items(),
+                                                key=lambda item: (-item[1], item[0]),
+                                            )
+                                        ]
+                                    ),
+                                    hide_index=True,
+                                    width="stretch",
+                                )
+                                if best_report.diagram_text is not None:
+                                    st.text_area(
+                                        "Diagramma completo ottimizzato",
+                                        best_report.diagram_text,
+                                        height=650,
+                                        disabled=True,
+                                        key=f"optimized_diagram_{synthesis_id}",
+                                    )
+                                else:
+                                    st.info(
+                                        "Il circuito supera la soglia grafica; i "
+                                        "conteggi e la certificazione restano completi."
+                                    )
+                            download_columns = st.columns(2)
+                            if best_report.transpiled_qpy is not None:
+                                download_columns[0].download_button(
+                                    "Scarica circuito ottimizzato (QPY)",
+                                    data=best_report.transpiled_qpy,
+                                    file_name=(
+                                        f"circuito_ottimizzato_{selected_key}_c{copies}.qpy"
+                                    ),
+                                    mime="application/octet-stream",
+                                )
+                            if best_report.diagram_text is not None:
+                                download_columns[1].download_button(
+                                    "Scarica diagramma ottimizzato (TXT)",
+                                    data=best_report.diagram_text.encode("utf-8"),
+                                    file_name=(
+                                        f"circuito_ottimizzato_{selected_key}_c{copies}.txt"
+                                    ),
+                                    mime="text/plain",
+                                )
                 else:
                     st.warning(
                         "La sintesi completa non viene avviata automaticamente oltre "
@@ -1789,8 +2057,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                         )
                     st.write(
                         "Il preflight aggiunge la preparazione dello stato test e "
-                        "sintetizza tutto in un processo isolato. Il provider eseguirà "
-                        "poi una seconda transpilation nella base nativa del dispositivo."
+                        "sintetizza l'isometria ottimizzata in un processo isolato. "
+                        "Prima dell'invio la confronta con U_PGM sull'intero "
+                        "sottospazio valido; il provider eseguirà poi una seconda "
+                        "transpilation nella base nativa del dispositivo."
                     )
                     preflight_id = (
                         f"{synthesis_id}|{selected_provider}|"
@@ -1814,6 +2084,12 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     test_states[sample_index],
                                     name=f"PGM_test_{sample_index + 1}",
                                 )
+                                reference_sample_circuit = build_sample_circuit(
+                                    dilation,
+                                    test_states[sample_index],
+                                    name=f"PGM_test_{sample_index + 1}_reference",
+                                    optimized_isometry=False,
+                                )
                                 with st.spinner(
                                     "Decomposizione completa, inclusa la preparazione "
                                     "dello stato..."
@@ -1822,6 +2098,14 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                         qpy_bytes(sample_circuit),
                                         300,
                                         FULL_GATE_DIAGRAM_LIMIT,
+                                        reference_qpy_payload=qpy_bytes(
+                                            reference_sample_circuit
+                                        ),
+                                        input_subspace_dimension=(
+                                            resources.padded_system_dimension
+                                        ),
+                                        optimization_level=optimization_level,
+                                        seed_transpiler=execution_seed,
                                     )
                                 st.session_state["hardware_preflight"] = {
                                     "id": preflight_id,
@@ -1870,6 +2154,17 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     "I conteggi sono nella base generica rz/sx/x/cx; "
                                     "la compilazione nativa del provider può modificarli."
                                 )
+                                if preflight_report.equivalence_certified is True:
+                                    st.success(
+                                        "Preflight certificato equivalente a U_PGM · "
+                                        f"errore massimo "
+                                        f"{preflight_report.equivalence_error:.3e}."
+                                    )
+                                else:
+                                    st.error(
+                                        "Il preflight non ha superato la certificazione "
+                                        "di equivalenza: l'invio è disabilitato."
+                                    )
                                 if preflight_report.diagram_text is not None:
                                     with st.expander(
                                         "Mostra il circuito hardware completo",
@@ -1941,6 +2236,8 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     disabled=(
                                         not external_confirmation
                                         or preflight_report.transpiled_qpy is None
+                                        or preflight_report.equivalence_certified
+                                        is not True
                                     ),
                                     key=f"submit_external_{preflight_id}",
                                 ):

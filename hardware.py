@@ -50,13 +50,14 @@ def build_sample_circuit(
     reduced_state: NDArray,
     *,
     name: str = "PGM_classification",
+    optimized_isometry: bool = True,
 ) -> Any:
     """Create an executable circuit including test-state preparation and PGM."""
 
-    if dilation.unitary is None:
+    if dilation.unitary is None or dilation.isometry is None:
         raise ValueError("Per l'esecuzione hardware serve la dilatazione esatta.")
     from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
-    from qiskit.circuit.library import StatePreparation, UnitaryGate
+    from qiskit.circuit.library import Isometry, StatePreparation, UnitaryGate
 
     resources = dilation.resources
     state = np.asarray(reduced_state, dtype=np.complex128).reshape(-1)
@@ -77,10 +78,22 @@ def build_sample_circuit(
         list(system),
     )
     circuit.barrier()
-    circuit.append(
-        UnitaryGate(dilation.unitary, label="U_PGM (Naimark)"),
-        list(system) + list(outcome),
-    )
+    if optimized_isometry:
+        circuit.append(
+            Isometry(
+                dilation.isometry,
+                # Output ancillas are already implicit in the isometry dimensions.
+                num_ancillas_zero=0,
+                num_ancillas_dirty=0,
+                epsilon=1e-12,
+            ),
+            list(system) + list(outcome),
+        )
+    else:
+        circuit.append(
+            UnitaryGate(dilation.unitary, label="U_PGM (Naimark)"),
+            list(system) + list(outcome),
+        )
     circuit.barrier()
     circuit.measure(outcome, classical)
     return circuit
