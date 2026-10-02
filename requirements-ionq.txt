@@ -1,2 +1,2 @@
-# IonQ Quantum Cloud: simulatore e QPU
-qiskit-ionq>=1.0,<2
+# IonQ Quantum Cloud: simulatore e QPU. Serie compatibile con Qiskit 1.4.x.
+qiskit-ionq==0.6.1

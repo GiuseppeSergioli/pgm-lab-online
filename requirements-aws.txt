@@ -1,6 +1,6 @@
 # Componenti opzionali per Amazon Braket (Python >= 3.11)
 # Evita il conflitto tra cloudpickle 2.2.1 di Braket e joblib 1.6+.
 joblib>=1.4,<1.6
-boto3; python_version >= "3.11"
-amazon-braket-sdk; python_version >= "3.11"
-qiskit-braket-provider; python_version >= "3.11"
+boto3==1.43.102; python_version >= "3.11"
+amazon-braket-sdk==1.127.2; python_version >= "3.11"
+qiskit-braket-provider==0.4.6; python_version >= "3.11"

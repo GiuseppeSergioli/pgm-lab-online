@@ -381,16 +381,52 @@ def aws_available_profiles() -> tuple[str, ...]:
     return tuple(sorted(set(boto3.Session().available_profiles)))
 
 
-def _aws_sessions(profile: str, region: str) -> tuple[Any, Any]:
+def _aws_sessions(
+    profile: str | None,
+    region: str,
+    *,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    session_token: str | None = None,
+) -> tuple[Any, Any]:
     import boto3
     from braket.aws import AwsSession
 
-    boto_session = boto3.Session(profile_name=profile, region_name=region)
+    if bool(access_key_id) != bool(secret_access_key):
+        raise ValueError(
+            "AWS Access Key ID e Secret Access Key devono essere fornite insieme."
+        )
+    session_arguments: dict[str, Any] = {"region_name": region}
+    if profile:
+        session_arguments["profile_name"] = profile
+    if access_key_id and secret_access_key:
+        session_arguments.update(
+            {
+                "aws_access_key_id": access_key_id,
+                "aws_secret_access_key": secret_access_key,
+            }
+        )
+        if session_token:
+            session_arguments["aws_session_token"] = session_token
+    boto_session = boto3.Session(**session_arguments)
     return boto_session, AwsSession(boto_session=boto_session)
 
 
-def verify_aws_identity(profile: str, region: str) -> dict[str, str]:
-    boto_session, _ = _aws_sessions(profile, region)
+def verify_aws_identity(
+    profile: str | None,
+    region: str,
+    *,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    session_token: str | None = None,
+) -> dict[str, str]:
+    boto_session, _ = _aws_sessions(
+        profile,
+        region,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        session_token=session_token,
+    )
     identity = boto_session.client("sts").get_caller_identity()
     return {
         "account": str(identity.get("Account", "")),
@@ -401,15 +437,24 @@ def verify_aws_identity(profile: str, region: str) -> dict[str, str]:
 
 
 def discover_aws_devices(
-    profile: str,
+    profile: str | None,
     region: str,
     *,
     simulators: bool,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    session_token: str | None = None,
 ) -> tuple[DeviceDescriptor, ...]:
     from braket.aws import AwsDevice
     from braket.aws.aws_device import AwsDeviceType
 
-    _, aws_session = _aws_sessions(profile, region)
+    _, aws_session = _aws_sessions(
+        profile,
+        region,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        session_token=session_token,
+    )
     requested_type = AwsDeviceType.SIMULATOR if simulators else AwsDeviceType.QPU
     discovery_arguments: dict[str, Any] = {
         "types": [requested_type],
@@ -457,16 +502,36 @@ def _temporary_aws_environment(profile: str, region: str) -> Iterator[None]:
                 os.environ[key] = value
 
 
-def _create_braket_provider(profile: str, region: str) -> Any:
+def _create_braket_provider(
+    profile: str | None,
+    region: str,
+    *,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    session_token: str | None = None,
+) -> Any:
     from qiskit_braket_provider import BraketProvider
 
-    _, aws_session = _aws_sessions(profile, region)
+    _, aws_session = _aws_sessions(
+        profile,
+        region,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        session_token=session_token,
+    )
     try:
         parameters = inspect.signature(BraketProvider).parameters
     except (TypeError, ValueError):
         parameters = {}
     if "aws_session" in parameters:
         return BraketProvider(aws_session=aws_session)
+    if access_key_id or secret_access_key or session_token:
+        raise RuntimeError(
+            "Questa versione del provider Braket non accetta una sessione AWS "
+            "isolata. Aggiornare qiskit-braket-provider."
+        )
+    if not profile:
+        raise RuntimeError("Nessun profilo o credenziale AWS disponibile.")
     with _temporary_aws_environment(profile, region):
         return BraketProvider()
 
@@ -474,14 +539,24 @@ def _create_braket_provider(profile: str, region: str) -> Any:
 def submit_aws_job(
     circuit: Any,
     *,
-    profile: str,
+    profile: str | None,
     region: str,
     backend_name: str,
     backend_identifier: str | None = None,
     shots: int,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    session_token: str | None = None,
 ) -> tuple[Any, str]:
-    provider = _create_braket_provider(profile, region)
-    with _temporary_aws_environment(profile, region):
+    provider = _create_braket_provider(
+        profile,
+        region,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        session_token=session_token,
+    )
+
+    def submit() -> tuple[Any, str]:
         backend = None
         lookup_errors = []
         for candidate in (backend_identifier, backend_name):
@@ -497,7 +572,12 @@ def submit_aws_job(
                 "Backend Amazon Braket non trovato: " + " | ".join(lookup_errors)
             )
         job = backend.run(circuit, shots=shots)
-    return job, _job_identifier(job)
+        return job, _job_identifier(job)
+
+    if profile:
+        with _temporary_aws_environment(profile, region):
+            return submit()
+    return submit()
 
 
 def discover_lrz_backends(

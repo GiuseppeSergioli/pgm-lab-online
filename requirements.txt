@@ -9,6 +9,21 @@ pyarrow==17.0.0
 streamlit==1.64.0
 qiskit==1.4.5
 
+# Simulatore locale ad alte prestazioni usato dalla voce "Qiskit Aer".
+# Incluso nel deployment pubblico: il server cloud non esegue l'installer .command.
+qiskit-aer==0.17.2
+
+# Provider cloud compatibili con Qiskit 1.4.x. Le versioni sono bloccate per
+# impedire che un rebuild installi automaticamente release basate su Qiskit 2.x.
+qiskit-ionq==0.6.1
+qiskit-ibm-runtime==0.37.0
+
+# Amazon Braket. joblib resta a 1.5.2 per essere compatibile con la versione di
+# cloudpickle richiesta dallo SDK Braket.
+boto3==1.43.102; python_version >= "3.11"
+amazon-braket-sdk==1.127.2; python_version >= "3.11"
+qiskit-braket-provider==0.4.6; python_version >= "3.11"
+
 # Adapter ufficiale LRZ/MQSS. Installato nel deployment pubblico affinche la
 # connessione a EQE1 sia disponibile senza comandi locali sul computer utente.
 mqss-qiskit==0.2.0; python_version >= "3.9" and python_version < "3.14"

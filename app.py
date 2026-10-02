@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 from math import ceil
 import os
@@ -108,7 +109,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.2.0"
+APP_VERSION = "4.3.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 8
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 6
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -1136,6 +1137,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 selected_device = None
                 aws_profile = None
                 aws_region = None
+                aws_access_key_id = ""
+                aws_secret_access_key = ""
+                aws_session_token = ""
                 lrz_token = ""
                 ionq_token = ""
                 ibm_token = ""
@@ -1334,9 +1338,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 if selected_provider in {"aws_simulator", "aws_qpu"}:
                     st.markdown("###### Connessione sicura ad Amazon Braket")
                     st.info(
-                        "AWS non usa un singolo token Braket. L'app usa un profilo "
-                        "AWS SSO già configurato sul Mac; Access Key e Secret Key non "
-                        "devono essere incollate nell'interfaccia."
+                        "AWS non usa un singolo token Braket. Online puoi usare "
+                        "credenziali temporanee della tua sessione AWS; in locale puoi "
+                        "anche selezionare un profilo SSO già configurato. Le "
+                        "credenziali non vengono salvate dall'app né inserite nei file."
                     )
                     if not python_status["aws_compatible"]:
                         st.error("Amazon Braket richiede Python 3.11 o successivo.")
@@ -1350,82 +1355,165 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                         )
                     else:
                         profiles = aws_available_profiles()
-                        if not profiles:
-                            st.warning(
-                                "Non trovo profili AWS locali. Configura una volta il "
-                                "profilo con `aws configure sso --profile pgm-braket`, "
-                                "poi accedi con `aws sso login --profile pgm-braket`."
-                            )
-                        else:
+                        configured_aws_access_key = configured_secret(
+                            "AWS_ACCESS_KEY_ID"
+                        )
+                        configured_aws_secret_key = configured_secret(
+                            "AWS_SECRET_ACCESS_KEY"
+                        )
+                        configured_aws_session_token = configured_secret(
+                            "AWS_SESSION_TOKEN"
+                        )
+                        has_deployment_credentials = bool(
+                            configured_aws_access_key and configured_aws_secret_key
+                        )
+                        auth_modes = ["Credenziali temporanee AWS"]
+                        if has_deployment_credentials:
+                            auth_modes.insert(0, "Credenziali protette del deployment")
+                        if profiles:
+                            auth_modes.append("Profilo AWS locale / SSO")
+                        aws_auth_mode = st.radio(
+                            "Autenticazione AWS",
+                            auth_modes,
+                            horizontal=True,
+                            key=f"aws_auth_mode_{synthesis_id}_{selected_provider}",
+                        )
+
+                        if aws_auth_mode == "Profilo AWS locale / SSO":
                             aws_profile = st.selectbox(
                                 "Profilo AWS locale",
                                 profiles,
                                 key=f"aws_profile_{synthesis_id}_{selected_provider}",
                             )
-                            region_labels = {
-                                "🇺🇸 us-east-1": "us-east-1",
-                                "🇺🇸 us-west-1": "us-west-1",
-                                "🇺🇸 us-west-2": "us-west-2",
-                                "🇸🇪 eu-north-1": "eu-north-1",
-                                "🇬🇧 eu-west-2": "eu-west-2",
-                            }
-                            selected_region_label = st.selectbox(
-                                "Regione AWS",
-                                list(region_labels),
-                                key=f"aws_region_{synthesis_id}_{selected_provider}",
+                        elif aws_auth_mode == "Credenziali protette del deployment":
+                            aws_access_key_id = configured_aws_access_key
+                            aws_secret_access_key = configured_aws_secret_key
+                            aws_session_token = configured_aws_session_token
+                            st.success(
+                                "Credenziali AWS protette disponibili sul server."
                             )
-                            aws_region = region_labels[selected_region_label]
-                            connection_id = (
-                                f"{selected_provider}|{aws_profile}|{aws_region}"
+                        else:
+                            aws_columns = st.columns(2)
+                            aws_access_key_id = aws_columns[0].text_input(
+                                "AWS Access Key ID",
+                                type="password",
+                                key=f"aws_access_key_{synthesis_id}_{selected_provider}",
+                            ).strip()
+                            aws_secret_access_key = aws_columns[1].text_input(
+                                "AWS Secret Access Key",
+                                type="password",
+                                key=f"aws_secret_key_{synthesis_id}_{selected_provider}",
+                            ).strip()
+                            aws_session_token = st.text_input(
+                                "AWS Session Token (facoltativo; necessario per "
+                                "credenziali temporanee STS)",
+                                type="password",
+                                key=f"aws_session_token_{synthesis_id}_{selected_provider}",
+                            ).strip()
+                            st.caption(
+                                "Preferisci credenziali STS temporanee e con permessi "
+                                "limitati ad Amazon Braket. Non usare credenziali root."
                             )
-                            if st.button(
-                                "Verifica identità e aggiorna dispositivi",
-                                key=f"aws_connect_{connection_id}",
-                            ):
-                                try:
-                                    with st.spinner(
-                                        "Connessione AWS e lettura dei dispositivi..."
-                                    ):
-                                        identity = verify_aws_identity(
-                                            aws_profile, aws_region
-                                        )
-                                        devices = discover_aws_devices(
-                                            aws_profile,
-                                            aws_region,
-                                            simulators=(
-                                                selected_provider == "aws_simulator"
-                                            ),
-                                        )
-                                    st.session_state["aws_connection"] = {
-                                        "id": connection_id,
-                                        "identity": identity,
-                                        "devices": devices,
-                                    }
-                                except Exception as error:
-                                    st.error(f"Connessione AWS non riuscita: {error}")
-                            aws_connection = st.session_state.get("aws_connection")
-                            if (
-                                aws_connection
-                                and aws_connection["id"] == connection_id
-                            ):
-                                identity = aws_connection["identity"]
-                                st.success(
-                                    "Connessione verificata · account "
-                                    f"{identity['account']} · {identity['region']}"
+
+                        region_labels = {
+                            "🇺🇸 us-east-1": "us-east-1",
+                            "🇺🇸 us-west-1": "us-west-1",
+                            "🇺🇸 us-west-2": "us-west-2",
+                            "🇸🇪 eu-north-1": "eu-north-1",
+                            "🇬🇧 eu-west-2": "eu-west-2",
+                        }
+                        selected_region_label = st.selectbox(
+                            "Regione AWS",
+                            list(region_labels),
+                            key=f"aws_region_{synthesis_id}_{selected_provider}",
+                        )
+                        aws_region = region_labels[selected_region_label]
+                        credential_fingerprint = hashlib.sha256(
+                            "\0".join(
+                                (
+                                    aws_profile or "",
+                                    aws_access_key_id,
+                                    aws_secret_access_key,
+                                    aws_session_token,
                                 )
-                                devices = aws_connection["devices"]
-                                if not devices:
-                                    st.warning(
-                                        "Nessun dispositivo compatibile trovato per "
-                                        "questo profilo e questa selezione."
+                            ).encode("utf-8")
+                        ).hexdigest()[:12]
+                        connection_id = (
+                            f"{selected_provider}|{aws_auth_mode}|{aws_region}|"
+                            f"{credential_fingerprint}"
+                        )
+                        credentials_ready = bool(
+                            aws_profile
+                            or (aws_access_key_id and aws_secret_access_key)
+                        )
+                        if st.button(
+                            "Verifica identità e aggiorna dispositivi",
+                            disabled=not credentials_ready,
+                            key=f"aws_connect_{connection_id}",
+                        ):
+                            try:
+                                with st.spinner(
+                                    "Connessione AWS e lettura dei dispositivi..."
+                                ):
+                                    identity = verify_aws_identity(
+                                        aws_profile,
+                                        aws_region,
+                                        access_key_id=aws_access_key_id or None,
+                                        secret_access_key=(
+                                            aws_secret_access_key or None
+                                        ),
+                                        session_token=aws_session_token or None,
                                     )
-                                else:
-                                    selected_device = st.selectbox(
-                                        "Dispositivo Amazon Braket",
-                                        devices,
-                                        format_func=device_display_label,
-                                        key=f"aws_device_{connection_id}",
+                                    devices = discover_aws_devices(
+                                        aws_profile,
+                                        aws_region,
+                                        simulators=(
+                                            selected_provider == "aws_simulator"
+                                        ),
+                                        access_key_id=aws_access_key_id or None,
+                                        secret_access_key=(
+                                            aws_secret_access_key or None
+                                        ),
+                                        session_token=aws_session_token or None,
                                     )
+                                st.session_state["aws_connection"] = {
+                                    "id": connection_id,
+                                    "identity": identity,
+                                    "devices": devices,
+                                }
+                            except Exception as error:
+                                error_message = safe_error_message(
+                                    error, aws_secret_access_key
+                                )
+                                error_message = error_message.replace(
+                                    aws_access_key_id, "••••••"
+                                ) if aws_access_key_id else error_message
+                                error_message = error_message.replace(
+                                    aws_session_token, "••••••"
+                                ) if aws_session_token else error_message
+                                st.error(
+                                    f"Connessione AWS non riuscita: {error_message}"
+                                )
+                        aws_connection = st.session_state.get("aws_connection")
+                        if aws_connection and aws_connection["id"] == connection_id:
+                            identity = aws_connection["identity"]
+                            st.success(
+                                "Connessione verificata · account "
+                                f"{identity['account']} · {identity['region']}"
+                            )
+                            devices = aws_connection["devices"]
+                            if not devices:
+                                st.warning(
+                                    "Nessun dispositivo compatibile trovato per "
+                                    "queste credenziali e questa selezione."
+                                )
+                            else:
+                                selected_device = st.selectbox(
+                                    "Dispositivo Amazon Braket",
+                                    devices,
+                                    format_func=device_display_label,
+                                    key=f"aws_device_{connection_id}",
+                                )
 
                 elif selected_provider == "lrz":
                     st.markdown("###### Connessione a LRZ Quantum tramite MQSS")
@@ -1857,7 +1945,11 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     key=f"submit_external_{preflight_id}",
                                 ):
                                     secret_for_error = (
-                                        lrz_token or ionq_token or ibm_token or None
+                                        lrz_token
+                                        or ionq_token
+                                        or ibm_token
+                                        or aws_secret_access_key
+                                        or None
                                     )
                                     try:
                                         executable_circuit = circuit_from_qpy(
@@ -1914,9 +2006,16 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                                     ),
                                                 )
                                             else:
-                                                if not aws_profile or not aws_region:
+                                                if not aws_region or not (
+                                                    aws_profile
+                                                    or (
+                                                        aws_access_key_id
+                                                        and aws_secret_access_key
+                                                    )
+                                                ):
                                                     raise ValueError(
-                                                        "Profilo o regione AWS mancanti."
+                                                        "Credenziali o regione AWS "
+                                                        "mancanti."
                                                     )
                                                 job, job_id = submit_aws_job(
                                                     executable_circuit,
@@ -1927,6 +2026,15 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                                         selected_device.identifier
                                                     ),
                                                     shots=shots,
+                                                    access_key_id=(
+                                                        aws_access_key_id or None
+                                                    ),
+                                                    secret_access_key=(
+                                                        aws_secret_access_key or None
+                                                    ),
+                                                    session_token=(
+                                                        aws_session_token or None
+                                                    ),
                                                 )
                                         st.session_state["external_quantum_job"] = {
                                             "preflight_id": preflight_id,
