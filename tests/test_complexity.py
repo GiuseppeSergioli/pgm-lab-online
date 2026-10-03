@@ -4,10 +4,12 @@ import unittest
 from math import comb
 
 from complexity import (
+    automatic_encoded_feature_count,
     implementation_feasibility,
     paper_complexities,
     representation_dimensions,
 )
+from data_catalog import DATASETS
 
 
 class ComplexityTests(unittest.TestCase):
@@ -33,6 +35,25 @@ class ComplexityTests(unittest.TestCase):
         )
         self.assertFalse(estimate.feasible)
         self.assertTrue(estimate.reasons)
+
+    def test_automatic_feature_budget_covers_every_dataset_and_copy(self) -> None:
+        for dataset in DATASETS:
+            for copies in range(1, 9):
+                encoded = automatic_encoded_feature_count(
+                    dataset.features,
+                    copies,
+                    dataset.classes,
+                    max_tensor_dimension=512,
+                    max_total_qubits=7,
+                )
+                tensor, symmetric = representation_dimensions(encoded, copies)
+                total_qubits = (symmetric - 1).bit_length() + (
+                    dataset.classes - 1
+                ).bit_length()
+                self.assertGreaterEqual(encoded, 2)
+                self.assertLessEqual(encoded, dataset.features)
+                self.assertLessEqual(tensor, 512)
+                self.assertLessEqual(total_qubits, 7)
 
 
 if __name__ == "__main__":

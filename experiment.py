@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, normalize
 
 from data_catalog import load_public_dataset
-from pgm_core import PriorMode, run_all_methods
+from pgm_core import PriorMode, run_all_methods, run_all_methods_scalable
 
 
 def run_experiment(
@@ -20,6 +20,8 @@ def run_experiment(
     prior_mode: PriorMode = "uniform",
     relative_tolerance: float = 1e-10,
     max_encoded_features: int | None = None,
+    scalable_full_features: bool = False,
+    explicit_dimension_limit: int = 512,
 ) -> dict:
     """Load, split, encode and run all three classifiers on one public dataset."""
 
@@ -77,13 +79,22 @@ def run_experiment(
     X_train = normalize(X_train_scaled, norm="l2", axis=1).astype(np.float64)
     X_test = normalize(X_test_scaled, norm="l2", axis=1).astype(np.float64)
 
-    results = run_all_methods(
-        X_train,
-        y_train,
-        X_test,
-        copies=copies,
-        prior_mode=prior_mode,
-        relative_tolerance=relative_tolerance,
+    runner = run_all_methods_scalable if scalable_full_features else run_all_methods
+    runner_kwargs = {
+        "copies": copies,
+        "prior_mode": prior_mode,
+        "relative_tolerance": relative_tolerance,
+    }
+    if scalable_full_features:
+        runner_kwargs["explicit_dimension_limit"] = explicit_dimension_limit
+    results = runner(X_train, y_train, X_test, **runner_kwargs)
+    independent_methods = tuple(
+        name
+        for name, result in results.items()
+        if "non materializzata" not in result.execution_mode
+    )
+    kernel_equivalent_methods = tuple(
+        name for name in results if name not in independent_methods
     )
     return {
         "results": results,
@@ -98,4 +109,9 @@ def run_experiment(
         "feature_transform": feature_transform,
         "explained_variance_ratio": explained_variance_ratio,
         "class_count": int(y_series.nunique()),
+        "execution_mode": (
+            "scalabile_full_features" if scalable_full_features else "indipendente"
+        ),
+        "independent_methods": independent_methods,
+        "kernel_equivalent_methods": kernel_equivalent_methods,
     }

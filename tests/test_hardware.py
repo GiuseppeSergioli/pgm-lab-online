@@ -17,6 +17,7 @@ from hardware import (
     prediction_from_counts,
     simulate_ideal_shots,
     submit_ionq_job,
+    verify_aws_identity,
 )
 from quantum_pgm import build_naimark_dilation, build_reduced_pgm_measurement
 
@@ -65,6 +66,70 @@ class HardwareHelpersTests(unittest.TestCase):
         self.assertIn("version", report)
         self.assertIsInstance(report["aws_compatible"], bool)
         self.assertIsInstance(report["lrz_compatible"], bool)
+
+    def test_aws_identity_accepts_isolated_session_credentials(self) -> None:
+        captured = {}
+
+        class STSClient:
+            def get_caller_identity(self):
+                return {
+                    "Account": "123456789012",
+                    "Arn": "arn:aws:iam::123456789012:user/test",
+                    "UserId": "test-user",
+                }
+
+        class BotoSession:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            def client(self, name):
+                self.client_name = name
+                return STSClient()
+
+        class AwsSession:
+            def __init__(self, *, boto_session):
+                self.boto_session = boto_session
+
+        boto3_module = types.ModuleType("boto3")
+        boto3_module.Session = BotoSession
+        braket_module = types.ModuleType("braket")
+        braket_aws_module = types.ModuleType("braket.aws")
+        braket_aws_module.AwsSession = AwsSession
+        braket_module.aws = braket_aws_module
+
+        previous_boto3 = sys.modules.get("boto3")
+        previous_braket = sys.modules.get("braket")
+        previous_braket_aws = sys.modules.get("braket.aws")
+        sys.modules["boto3"] = boto3_module
+        sys.modules["braket"] = braket_module
+        sys.modules["braket.aws"] = braket_aws_module
+        try:
+            identity = verify_aws_identity(
+                None,
+                "eu-west-2",
+                access_key_id="temporary-access-key",
+                secret_access_key="temporary-secret",
+                session_token="temporary-session-token",
+            )
+        finally:
+            for name, previous in (
+                ("boto3", previous_boto3),
+                ("braket", previous_braket),
+                ("braket.aws", previous_braket_aws),
+            ):
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        self.assertEqual(identity["account"], "123456789012")
+        self.assertEqual(identity["region"], "eu-west-2")
+        self.assertEqual(captured["aws_access_key_id"], "temporary-access-key")
+        self.assertEqual(captured["aws_secret_access_key"], "temporary-secret")
+        self.assertEqual(
+            captured["aws_session_token"], "temporary-session-token"
+        )
+        self.assertNotIn("profile_name", captured)
 
     def test_lrz_discovery_survives_backend_with_unavailable_target(self) -> None:
         class Status:

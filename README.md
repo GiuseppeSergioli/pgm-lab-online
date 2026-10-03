@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.6.0**
+**Versione 4.7.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -17,6 +17,21 @@ rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo 
 training costruisce inoltre una dilatazione di Naimark (chiamata *Neumark dilation*
 nel paper) della PGM, ne disegna il circuito Qiskit e verifica le sue probabilità
 sul test set.
+
+## Novità della versione 4.7.0
+
+- Con **Tutte le feature originali** la classificazione non viene più bloccata
+  quando le matrici esplicite diventano troppo grandi. Il k-PGM viene sempre
+  calcolato direttamente; c-PGM e r-PGM vengono materializzati separatamente se
+  sicuri, altrimenti sono valutati tramite l'identità esatta delle Gram matrix
+  `K(x,z) = <x,z>**c`.
+- La tabella dei risultati distingue le esecuzioni indipendenti dalle formulazioni
+  equivalenti via kernel. Per queste ultime tempi e memoria osservati non vengono
+  attribuiti artificialmente: sono mostrati come non disponibili/non materializzati.
+- Se il circuito è troppo grande, restano disponibili accuratezza, matrice di
+  confusione, conteggio corrette/errate, dettaglio di ogni campione e CSV delle
+  predizioni. La modalità automatica quantum-ready rimane la scelta necessaria
+  quando si desidera anche materializzare ed eseguire il circuito.
 
 ## Novità della versione 4.6.0
 
@@ -368,12 +383,14 @@ segnaposto.
 
 ## Protezione da configurazioni ingestibili
 
-Il c-PGM esplicito cresce molto rapidamente. Prima di abilitare il calcolo, l'app
-stima le principali allocazioni NumPy e controlla sia il budget RAM scelto sia la
-dimensione della diagonalizzazione densa. Se il run è bloccato, le complessità
-teoriche sono comunque mostrate. La modalità quantum-ready, attiva di default,
-sceglie invece il massimo numero di componenti PCA che rende eseguibili tutte le
-fasi; il budget RAM non viene usato per promettere risorse che il server non possiede.
+Il c-PGM esplicito cresce molto rapidamente. Prima di abilitarne la
+materializzazione, l'app stima le principali allocazioni NumPy e controlla sia il
+budget RAM scelto sia la dimensione della diagonalizzazione densa. Se le forme
+primali non sono sicure, la modalità con tutte le feature conserva la
+classificazione attraverso il k-PGM equivalente senza allocarle. La modalità
+quantum-ready, attiva di default, sceglie invece il massimo numero di componenti
+PCA che rende eseguibili tutte le fasi, circuito incluso; il budget RAM non viene
+usato per promettere risorse che il server non possiede.
 
 ## Test
 
@@ -386,6 +403,8 @@ I test verificano:
 - identità delle Gram matrix delle mappe tensoriale, simmetrica e kernel;
 - uguaglianza degli score e delle predizioni dei tre classificatori per prior
   uniformi ed empirici;
+- disponibilità della classificazione scalabile con tutte le feature anche quando
+  una o entrambe le rappresentazioni primali non vengono materializzate;
 - sostituzione numerica delle formule di complessità;
 - funzionamento del limite preventivo sulle risorse;
 - positività e completezza della POVM quantistica;

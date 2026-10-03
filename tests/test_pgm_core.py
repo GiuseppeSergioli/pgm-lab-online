@@ -4,7 +4,12 @@ import unittest
 
 import numpy as np
 
-from pgm_core import run_all_methods, symmetric_feature_map, tensor_feature_map
+from pgm_core import (
+    run_all_methods,
+    run_all_methods_scalable,
+    symmetric_feature_map,
+    tensor_feature_map,
+)
 
 
 def unit_rows(rng: np.random.Generator, rows: int, columns: int) -> np.ndarray:
@@ -61,6 +66,42 @@ class ClassifierEquivalenceTests(unittest.TestCase):
                             results[name].predictions, reference.predictions
                         )
                         self.assertEqual(results[name].rank, reference.rank)
+
+    def test_scalable_mode_materializes_only_safe_primal_representation(self) -> None:
+        rng = np.random.default_rng(321)
+        X_train = unit_rows(rng, rows=18, columns=4)
+        X_test = unit_rows(rng, rows=7, columns=4)
+        y_train = np.asarray(["A"] * 6 + ["B"] * 6 + ["C"] * 6)
+
+        results = run_all_methods_scalable(
+            X_train,
+            y_train,
+            X_test,
+            copies=3,
+            relative_tolerance=1e-11,
+            explicit_dimension_limit=32,
+        )
+
+        self.assertIn("kernel", results["c-PGM"].execution_mode)
+        self.assertEqual(
+            results["k-PGM"].execution_mode, "kernel diretto indipendente"
+        )
+        self.assertEqual(
+            results["r-PGM"].execution_mode, "esplicita indipendente"
+        )
+        self.assertTrue(np.isnan(results["c-PGM"].train_seconds))
+        self.assertEqual(results["c-PGM"].representation_dimension, 4**3)
+        self.assertEqual(results["r-PGM"].representation_dimension, 20)
+        for name in ("c-PGM", "r-PGM"):
+            np.testing.assert_array_equal(
+                results[name].predictions, results["k-PGM"].predictions
+            )
+            np.testing.assert_allclose(
+                results[name].scores,
+                results["k-PGM"].scores,
+                atol=2e-9,
+                rtol=2e-9,
+            )
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from itertools import combinations_with_replacement
-from math import lgamma
+from math import comb, lgamma
 from time import perf_counter
 from typing import Callable, Literal
 
@@ -42,6 +42,7 @@ class MethodResult:
     minimum_eigenvalue: float
     model_state_bytes: int
     maximum_feature_norm_error: float
+    execution_mode: str = "esplicita indipendente"
 
 
 def _as_float_matrix(X: NDArray, name: str) -> FloatArray:
@@ -384,6 +385,7 @@ def run_k_pgm(
         minimum_eigenvalue=minimum_eigenvalue,
         model_state_bytes=state_bytes,
         maximum_feature_norm_error=0.0,
+        execution_mode="kernel diretto indipendente",
     )
 
 
@@ -429,3 +431,114 @@ def run_all_methods(
         ),
     ]
     return {result.method: result for result in results}
+
+
+def _equivalent_result_from_kernel(
+    kernel_result: MethodResult,
+    *,
+    method: str,
+    representation_dimension: int,
+) -> MethodResult:
+    """Represent a primal PGM through its exactly equivalent kernel scores.
+
+    No primal feature matrix is materialized in this path.  Consequently its
+    observed runtime and model-state memory are deliberately reported as NaN/0
+    rather than being attributed to work performed by k-PGM.
+    """
+
+    return MethodResult(
+        method=method,
+        predictions=kernel_result.predictions.copy(),
+        scores=kernel_result.scores.copy(),
+        rank=kernel_result.rank,
+        representation_dimension=int(representation_dimension),
+        train_seconds=float("nan"),
+        predict_seconds=float("nan"),
+        spectral_threshold=kernel_result.spectral_threshold,
+        minimum_eigenvalue=kernel_result.minimum_eigenvalue,
+        model_state_bytes=0,
+        maximum_feature_norm_error=float("nan"),
+        execution_mode="equivalente esatta via kernel (matrice non materializzata)",
+    )
+
+
+def run_all_methods_scalable(
+    X_train: NDArray,
+    y_train: NDArray,
+    X_test: NDArray,
+    *,
+    copies: int,
+    prior_mode: PriorMode = "uniform",
+    relative_tolerance: float = 1e-10,
+    explicit_dimension_limit: int = 512,
+) -> dict[str, MethodResult]:
+    """Run the three equivalent classifiers without requiring huge primal matrices.
+
+    k-PGM is always evaluated directly.  c-PGM and r-PGM are also evaluated with
+    their independent explicit maps whenever their representation fits the given
+    limit.  Above the limit their scores are obtained from k-PGM: this is the same
+    classifier because all three Gram matrices are exactly ``<x, z>**copies``.
+    """
+
+    X_train_f, y_train_a, X_test_f = _validate_inputs(
+        X_train, y_train, X_test, copies
+    )
+    if not isinstance(explicit_dimension_limit, (int, np.integer)):
+        raise ValueError("explicit_dimension_limit deve essere un intero.")
+    if int(explicit_dimension_limit) < 1:
+        raise ValueError("explicit_dimension_limit deve essere positivo.")
+
+    classes = np.unique(y_train_a)
+    dimension = int(X_train_f.shape[1])
+    tensor_dimension = dimension**int(copies)
+    symmetric_dimension = comb(dimension + int(copies) - 1, int(copies))
+
+    kernel_result = run_k_pgm(
+        X_train_f,
+        y_train_a,
+        X_test_f,
+        copies=copies,
+        classes=classes,
+        prior_mode=prior_mode,
+        relative_tolerance=relative_tolerance,
+    )
+
+    if tensor_dimension <= int(explicit_dimension_limit):
+        c_result = run_c_pgm(
+            X_train_f,
+            y_train_a,
+            X_test_f,
+            copies=copies,
+            classes=classes,
+            prior_mode=prior_mode,
+            relative_tolerance=relative_tolerance,
+        )
+    else:
+        c_result = _equivalent_result_from_kernel(
+            kernel_result,
+            method="c-PGM",
+            representation_dimension=tensor_dimension,
+        )
+
+    if symmetric_dimension <= int(explicit_dimension_limit):
+        r_result = run_r_pgm(
+            X_train_f,
+            y_train_a,
+            X_test_f,
+            copies=copies,
+            classes=classes,
+            prior_mode=prior_mode,
+            relative_tolerance=relative_tolerance,
+        )
+    else:
+        r_result = _equivalent_result_from_kernel(
+            kernel_result,
+            method="r-PGM",
+            representation_dimension=symmetric_dimension,
+        )
+
+    return {
+        "c-PGM": c_result,
+        "k-PGM": kernel_result,
+        "r-PGM": r_result,
+    }

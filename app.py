@@ -112,13 +112,14 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.6.0"
+APP_VERSION = "4.7.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
 AUTOMATIC_OPTIMIZATION_LEVELS = (1, 2, 3)
 AUTO_MAX_TENSOR_DIMENSION = 512
 AUTO_MAX_TOTAL_QUBITS = 7
+SCALABLE_EXPLICIT_DIMENSION_LIMIT = 512
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
@@ -130,6 +131,7 @@ def execute_experiment(
     prior_mode: str,
     relative_tolerance: float,
     max_encoded_features: int | None,
+    scalable_full_features: bool,
 ) -> dict:
     return run_experiment(
         dataset_key,
@@ -139,6 +141,8 @@ def execute_experiment(
         prior_mode=prior_mode,
         relative_tolerance=relative_tolerance,
         max_encoded_features=max_encoded_features,
+        scalable_full_features=scalable_full_features,
+        explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
     )
 
 
@@ -302,9 +306,14 @@ def results_frame(results: dict[str, MethodResult], y_test: np.ndarray) -> pd.Da
                 "Accordo con c-PGM": float(np.mean(result.predictions == reference)),
                 "Rank numerico": result.rank,
                 "Dimensione": result.representation_dimension,
+                "Calcolo": result.execution_mode,
                 "Training (s)": result.train_seconds,
                 "Predizione (s)": result.predict_seconds,
-                "Stato modello": human_bytes(result.model_state_bytes),
+                "Stato modello": (
+                    human_bytes(result.model_state_bytes)
+                    if "non materializzata" not in result.execution_mode
+                    else "Non materializzato"
+                ),
             }
         )
     return pd.DataFrame(records)
@@ -566,8 +575,9 @@ else:
         f"{preview_circuit_resources.unitary_dimension:,} "
         f"({human_bytes(preview_circuit_resources.unitary_bytes)}). La matrice esatta "
         f"supera il limite prudenziale di {EXACT_CIRCUIT_QUBIT_LIMIT} qubit. "
-        "Seleziona la modalità automatica quantum-ready per mantenere disponibili "
-        "circuito, classificazione, validazione ed esecuzione quantistica."
+        "La classificazione classica resta disponibile; seleziona la modalità "
+        "automatica quantum-ready soltanto se vuoi anche il circuito esatto, la "
+        "validazione circuitale e l'esecuzione quantistica."
     )
 
 preview_complexities = paper_complexities(
@@ -589,17 +599,40 @@ st.caption(
     "Le dimensioni mostrate usano il numero di feature codificate indicato sopra."
 )
 
+full_feature_mode = feature_mode == "Tutte le feature originali"
+kernel_peak_bytes = 8 * (
+    8 * n_train_estimate**2 + n_train_estimate * encoded_feature_count
+)
+kernel_feasible = (
+    kernel_peak_bytes <= int(memory_budget_gib * 1024**3)
+    and n_train_estimate <= 2_000
+)
+scalable_full_features = (
+    full_feature_mode and not feasibility.feasible and kernel_feasible
+)
+classical_run_allowed = feasibility.feasible or scalable_full_features
+
 if feasibility.feasible:
     st.success(
         "Configurazione eseguibile con il limite prudenziale dell'app. "
         f"Picco NumPy stimato: {human_bytes(feasibility.estimated_peak_bytes)}."
     )
+elif scalable_full_features:
+    st.warning(
+        "Le rappresentazioni primali complete sono troppo grandi da materializzare, "
+        "ma la classificazione è disponibile in modalità scalabile con tutte le "
+        "feature originali. Il k-PGM viene calcolato direttamente; c-PGM e r-PGM "
+        f"vengono eseguiti anche in forma esplicita quando la loro dimensione è <= "
+        f"{SCALABLE_EXPLICIT_DIMENSION_LIMIT:,}, altrimenti sono valutati tramite "
+        "lo stesso kernel esatto ⟨x,z⟩^c. L'interfaccia distinguerà chiaramente i "
+        "metodi materializzati da quelli equivalenti via kernel."
+    )
 else:
     st.error(
-        "Il confronto numerico è bloccato per evitare un crash: "
+        "Anche il calcolo kernel supera il limite prudenziale selezionato: "
         + "; ".join(feasibility.reasons)
-        + ". Usa la modalità automatica quantum-ready; in alternativa riduci c o "
-        "aumenta il budget solo se il computer dispone realmente di quella RAM. "
+        + ". Usa la modalità automatica quantum-ready oppure aumenta il budget solo "
+        "se il computer dispone realmente di quella RAM. "
         "La tabella di complessità rimane comunque valida."
     )
 
@@ -612,11 +645,17 @@ configuration_key = (
     int(random_seed),
     PRIOR_LABELS[prior_label],
     int(tolerance_exponent),
+    scalable_full_features,
+)
+run_button_label = (
+    "Esegui i classificatori e costruisci il circuito"
+    if preview_circuit_resources.exact_materialization_allowed
+    else "Esegui i classificatori (circuito non materializzato)"
 )
 run_clicked = st.button(
-    "Esegui i classificatori e costruisci il circuito",
+    run_button_label,
     type="primary",
-    disabled=not feasibility.feasible,
+    disabled=not classical_run_allowed,
     width="stretch",
 )
 
@@ -631,6 +670,7 @@ if run_clicked:
                 PRIOR_LABELS[prior_label],
                 10.0 ** (-int(tolerance_exponent)),
                 encoded_feature_count,
+                scalable_full_features,
             )
         st.session_state["last_pgm_run"] = {
             "configuration_key": configuration_key,
@@ -668,7 +708,34 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         ),
     }
     maximum_score_difference = max(pairwise_differences.values())
-    if all_predictions_equal:
+    kernel_equivalent_methods = tuple(
+        payload.get("kernel_equivalent_methods", ())
+    )
+    independent_methods = tuple(payload.get("independent_methods", ()))
+    if kernel_equivalent_methods:
+        if all_predictions_equal:
+            st.success(
+                "Classificazione completata con tutte le feature originali: le tre "
+                f"formulazioni restituiscono le stesse predizioni sui {len(y_test)} "
+                "campioni di test."
+            )
+        else:
+            st.warning(
+                "Una formulazione calcolata esplicitamente non coincide con il "
+                "risultato kernel su tutti i campioni. Il caso può essere "
+                "numericamente quasi degenere: consulta la diagnostica."
+            )
+        st.info(
+            "Calcolo scalabile attivo. "
+            + ", ".join(independent_methods)
+            + " sono stati calcolati direttamente e indipendentemente; "
+            + ", ".join(kernel_equivalent_methods)
+            + " sono stati valutati mediante l'identità esatta delle Gram matrix "
+            "con k-PGM, senza costruire le rispettive matrici primali. Gli zeri negli "
+            "scarti che coinvolgono questi metodi derivano quindi dall'equivalenza "
+            "usata, non da tre esecuzioni indipendenti."
+        )
+    elif all_predictions_equal:
         st.success(
             "Verifica superata: le predizioni dei tre metodi sono identiche su tutti "
             f"i {len(y_test)} campioni di test. Scarto massimo tra score: "
@@ -688,10 +755,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         lambda value: f"{100.0 * value:.2f}%"
     )
     display_table["Training (s)"] = display_table["Training (s)"].map(
-        lambda value: f"{value:.6f}"
+        lambda value: "—" if pd.isna(value) else f"{value:.6f}"
     )
     display_table["Predizione (s)"] = display_table["Predizione (s)"].map(
-        lambda value: f"{value:.6f}"
+        lambda value: "—" if pd.isna(value) else f"{value:.6f}"
     )
     st.dataframe(display_table, hide_index=True, width="stretch")
     st.caption(
@@ -711,6 +778,48 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
             else "100% (nessuna PCA)"
         ),
     )
+
+    if not preview_circuit_resources.exact_materialization_allowed:
+        classical_predictions = results["k-PGM"].predictions
+        classical_classes = np.unique(payload["y_train"])
+        classical_correct = classical_predictions == y_test
+        classical_counts, classical_percentages = confusion_frames(
+            y_test, classical_predictions, classical_classes
+        )
+        st.markdown("#### Classificazione test (calcolo classico scalabile)")
+        st.write(
+            "Questa valutazione non richiede la costruzione del circuito. Ogni riga "
+            "confronta la classe reale con la predizione comune a c-PGM, k-PGM e "
+            "r-PGM."
+        )
+        classical_metrics = st.columns(3)
+        classical_metrics[0].metric("Campioni test", f"{len(y_test):,}")
+        classical_metrics[1].metric(
+            "Classificazioni corrette", f"{int(np.sum(classical_correct)):,}"
+        )
+        classical_metrics[2].metric(
+            "Errori", f"{int(np.sum(~classical_correct)):,}"
+        )
+        confusion_left, confusion_right = st.columns(2)
+        with confusion_left:
+            st.markdown("**Matrice di confusione — campioni**")
+            st.dataframe(classical_counts, width="stretch")
+        with confusion_right:
+            st.markdown("**Matrice di confusione — % per classe reale**")
+            st.dataframe(
+                classical_percentages.map(lambda value: f"{value:.1f}%"),
+                width="stretch",
+            )
+        classical_rows = pd.DataFrame(
+            {
+                "Campione test": np.arange(1, len(y_test) + 1),
+                "Classe reale": y_test,
+                "Classe predetta": classical_predictions,
+                "Esito": np.where(classical_correct, "✓ Corretta", "✗ Errata"),
+            }
+        )
+        with st.expander("Risultato di ogni campione", expanded=False):
+            st.dataframe(classical_rows, hide_index=True, width="stretch")
 
     with st.expander("Diagnostica numerica", expanded=False):
         st.dataframe(
@@ -2688,9 +2797,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 f"{resources.unitary_dimension:,} x {resources.unitary_dimension:,} "
                 f"({human_bytes(resources.unitary_bytes)} in complex128). Per proteggere "
                 "la memoria, l'app mostra l'architettura dimensionata ma non materializza "
-                "U_PGM. Seleziona **Automatica quantum-ready** per ottenere tutte le "
-                "schede, il circuito esatto esportabile e l'esecuzione quantistica; "
-                "in alternativa riduci il numero di copie."
+                "U_PGM. I risultati classici, la matrice di confusione e il dettaglio "
+                "dei campioni restano disponibili sopra. Seleziona **Automatica "
+                "quantum-ready** per ottenere il circuito esatto esportabile e "
+                "l'esecuzione quantistica; in alternativa riduci il numero di copie."
             )
             st.markdown(circuit_drawing, unsafe_allow_html=True)
             st.caption(
