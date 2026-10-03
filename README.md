@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.7.0**
+**Versione 4.8.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -17,6 +17,21 @@ rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo 
 training costruisce inoltre una dilatazione di Naimark (chiamata *Neumark dilation*
 nel paper) della PGM, ne disegna il circuito Qiskit e verifica le sue probabilità
 sul test set.
+
+## Novità della versione 4.8.0
+
+- Il tema chiaro è ora definito centralmente in `.streamlit/config.toml` e
+  protetto da fallback CSS. Questo elimina il caso osservato su alcuni smartphone
+  in cui Streamlit caricava testo chiaro da un tema scuro sopra lo sfondo bianco
+  dell'app, rendendo etichette e sezioni apparentemente invisibili.
+- L'impaginazione è responsiva: le colonne si dispongono su due righe nei tablet
+  e in una sola colonna sui telefoni; metriche, pulsanti, selettori e tab possono
+  andare a capo senza essere tagliati.
+- Tabelle e diagrammi restano contenuti nella larghezza disponibile. Il circuito
+  SVG mantiene il proprio rapporto d'aspetto e i controlli hanno dimensioni più
+  adatte all'interazione touch.
+- Le regole desktop rimangono invariate sopra i breakpoint responsive; nessuna
+  modifica è stata apportata a dataset, classificatori o circuiti quantistici.
 
 ## Novità della versione 4.7.0
 

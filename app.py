@@ -86,21 +86,120 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-      .stApp {background: linear-gradient(180deg, #f7f9ff 0%, #ffffff 28rem);}
-      .block-container {padding-top: 2rem; padding-bottom: 3rem; max-width: 1320px;}
-      [data-testid="stMetricValue"] {font-size: 1.55rem;}
+      /*
+       * The app deliberately uses one coherent light palette.  Some mobile
+       * browsers report a dark system theme to Streamlit while retaining the
+       * custom white background; without these fallbacks that produces white
+       * text on white.  config.toml sets the canonical theme and the rules below
+       * protect the page if a browser has cached a different preference.
+       */
+      :root {color-scheme: only light;}
+      html, body, [data-testid="stAppViewContainer"], .stApp {color-scheme: light;}
+      .stApp {
+        background: linear-gradient(180deg, #f7f9ff 0%, #ffffff 28rem);
+        color: #202531;
+      }
+      .block-container {
+        width: 100%; max-width: 1320px; padding-top: 2rem; padding-bottom: 3rem;
+      }
+      .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+      .stApp [data-testid="stMarkdownContainer"],
+      .stApp [data-testid="stWidgetLabel"],
+      .stApp [data-testid="stExpander"] summary {color: #202531;}
+      .stApp [data-testid="stMarkdownContainer"] p,
+      .stApp [data-testid="stMarkdownContainer"] li,
+      .stApp [data-testid="stWidgetLabel"] p,
+      .stApp [data-testid="stExpander"] summary p {color: #202531;}
+      .stApp [data-testid="stCaptionContainer"],
+      .stApp [data-testid="stCaptionContainer"] p,
+      .small-note {color: #5f6b7a;}
+      .stApp [data-baseweb="select"] > div,
+      .stApp [data-baseweb="input"] > div,
+      .stApp input, .stApp textarea {
+        background-color: #ffffff; color: #202531;
+      }
+      .stApp [data-baseweb="select"] *,
+      .stApp [data-baseweb="input"] *,
+      .stApp [data-testid="stRadio"] label,
+      .stApp [data-testid="stRadio"] label p,
+      .stApp [data-testid="stCheckbox"] label,
+      .stApp [data-testid="stCheckbox"] label p,
+      .stApp [data-testid="stToggle"] label,
+      .stApp [data-testid="stToggle"] label p {color: #202531;}
+      [data-testid="stMetricValue"] {font-size: 1.55rem; color: #202531;}
+      [data-testid="stMetricLabel"] {color: #4d586b;}
       [data-testid="stMetric"] {
         background: rgba(255,255,255,.88); border: 1px solid #e1e6f0;
         border-radius: 14px; padding: .75rem 1rem; box-shadow: 0 5px 18px rgba(33,43,74,.05);
+        min-width: 0;
       }
       [data-baseweb="tab-list"] {gap: .35rem; flex-wrap: wrap;}
       [data-baseweb="tab"] {
         background: #edf1fb; border-radius: 10px 10px 0 0; padding: .55rem .9rem;
+        color: #263247;
       }
+      [data-baseweb="tab"] p {color: #263247;}
       [data-baseweb="tab"][aria-selected="true"] {background: #ded8f8;}
       [data-testid="stAlert"] {border-radius: 12px;}
-      div.stButton > button, div.stDownloadButton > button {border-radius: 10px;}
-      .small-note {color: #5f6b7a; font-size: 0.92rem;}
+      div.stButton > button, div.stDownloadButton > button {
+        border-radius: 10px; max-width: 100%; min-height: 2.75rem;
+        white-space: normal; overflow-wrap: anywhere;
+      }
+      div.stButton > button[kind="primary"] p {color: #ffffff;}
+      [data-testid="stRadio"] [role="radiogroup"] {
+        flex-wrap: wrap; row-gap: .45rem; column-gap: 1rem;
+      }
+      [data-testid="stRadio"] label {max-width: 100%; white-space: normal;}
+      [data-testid="stDataFrame"], [data-testid="stTable"] {max-width: 100%;}
+      .stApp svg[role="img"], [data-testid="stImage"] img {
+        display: block; max-width: 100%; height: auto;
+      }
+      .small-note {font-size: 0.92rem;}
+      p, li, label, summary, button {overflow-wrap: anywhere;}
+
+      /* Tablet: columns wrap instead of being squeezed beyond readability. */
+      @media (max-width: 900px) {
+        .block-container {
+          max-width: 100%; padding: 1.25rem 1rem 2.5rem;
+        }
+        [data-testid="stHorizontalBlock"] {
+          flex-wrap: wrap; gap: .75rem;
+        }
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+          flex: 1 1 calc(50% - .75rem) !important;
+          width: auto !important; min-width: 16rem !important;
+        }
+        [data-baseweb="tab-list"] {row-gap: .45rem;}
+        [data-baseweb="tab"] {flex: 1 1 auto; justify-content: center;}
+      }
+
+      /* Phone: a single readable column, touch-sized controls and compact type. */
+      @media (max-width: 640px) {
+        .block-container {
+          padding-top: .9rem; padding-bottom: 5rem;
+          padding-left: max(.75rem, env(safe-area-inset-left));
+          padding-right: max(.75rem, env(safe-area-inset-right));
+        }
+        .stApp h1 {font-size: 2rem; line-height: 1.15;}
+        .stApp h2 {font-size: 1.55rem; line-height: 1.22;}
+        .stApp h3 {font-size: 1.25rem; line-height: 1.25;}
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+          flex: 1 1 100% !important;
+          width: 100% !important; min-width: 0 !important;
+        }
+        [data-testid="stMetric"] {padding: .65rem .8rem;}
+        [data-testid="stMetricValue"] {font-size: 1.3rem;}
+        [data-baseweb="tab"] {
+          flex: 1 1 calc(50% - .35rem); min-width: 8.5rem;
+          padding: .5rem .55rem;
+        }
+        [data-testid="stSelectbox"], [data-testid="stNumberInput"],
+        [data-testid="stTextInput"], [data-testid="stTextArea"],
+        [data-testid="stSlider"], [data-testid="stSelectSlider"] {
+          width: 100%; min-width: 0;
+        }
+        [data-baseweb="select"] > div {height: auto; min-height: 3rem;}
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -112,7 +211,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.7.0"
+APP_VERSION = "4.8.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
