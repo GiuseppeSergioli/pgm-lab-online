@@ -12,7 +12,8 @@ from pathlib import Path
 from time import perf_counter
 
 import numpy as np
-from qiskit import qpy, transpile
+from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister, qpy, transpile
+from qiskit.circuit.library import Isometry, StatePreparation
 from qiskit.quantum_info import Operator
 
 from quantum_pgm import subspace_equivalence_metrics
@@ -42,9 +43,73 @@ def _subspace_certificate(reference, candidate, dimension: int) -> tuple[float, 
     )
 
 
+def _load_input_circuit(args):
+    if bool(args.input) == bool(args.isometry):
+        raise ValueError(
+            "Fornire esattamente uno tra --input e --isometry."
+        )
+    if args.input:
+        with Path(args.input).open("rb") as handle:
+            circuits = qpy.load(handle)
+        if len(circuits) != 1:
+            raise ValueError("Il file QPY deve contenere esattamente un circuito.")
+        return circuits[0]
+
+    if args.system_qubits is None or args.outcome_qubits is None:
+        raise ValueError("Dimensioni dei registri mancanti per l'isometria.")
+    isometry = np.load(args.isometry, allow_pickle=False)
+    expected_shape = (
+        1 << (args.system_qubits + args.outcome_qubits),
+        1 << args.system_qubits,
+    )
+    if isometry.shape != expected_shape:
+        raise ValueError("Dimensioni della matrice isometrica non valide.")
+
+    system = QuantumRegister(args.system_qubits, "sys")
+    outcome = QuantumRegister(args.outcome_qubits, "out")
+    classical = ClassicalRegister(args.outcome_qubits, "m")
+    circuit = QuantumCircuit(system, outcome, classical, name=args.circuit_name)
+    if args.input_state:
+        state = np.asarray(
+            np.load(args.input_state, allow_pickle=False), dtype=np.complex128
+        ).reshape(-1)
+        padded_dimension = 1 << args.system_qubits
+        if state.size > padded_dimension:
+            raise ValueError("Lo stato non entra nel registro di sistema.")
+        padded = np.zeros(padded_dimension, dtype=np.complex128)
+        padded[: state.size] = state
+        norm = float(np.linalg.norm(padded))
+        if not np.isfinite(norm) or not np.isclose(
+            norm, 1.0, atol=1e-10, rtol=1e-10
+        ):
+            raise ValueError("Lo stato di ingresso deve avere norma unitaria.")
+        circuit.append(
+            StatePreparation(padded, normalize=False, label="Prepare |phi_c(x)>"),
+            list(system),
+        )
+        circuit.barrier()
+    circuit.append(
+        Isometry(
+            isometry,
+            num_ancillas_zero=0,
+            num_ancillas_dirty=0,
+            epsilon=1e-12,
+        ),
+        list(system) + list(outcome),
+    )
+    circuit.barrier()
+    circuit.measure(outcome, classical)
+    return circuit
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
+    parser.add_argument("--input")
+    parser.add_argument("--isometry")
+    parser.add_argument("--input-state")
+    parser.add_argument("--system-qubits", type=int)
+    parser.add_argument("--outcome-qubits", type=int)
+    parser.add_argument("--circuit-name", default="PGM_Naimark_isometry")
     parser.add_argument("--output", required=True)
     parser.add_argument("--report", required=True)
     parser.add_argument("--diagram", required=True)
@@ -57,14 +122,11 @@ def main() -> None:
     parser.add_argument("--equivalence-tolerance", type=float, default=1e-9)
     args = parser.parse_args()
 
-    with Path(args.input).open("rb") as handle:
-        circuits = qpy.load(handle)
-    if len(circuits) != 1:
-        raise ValueError("Il file QPY deve contenere esattamente un circuito.")
+    circuit = _load_input_circuit(args)
 
     started = perf_counter()
     transpiled = transpile(
-        circuits[0],
+        circuit,
         basis_gates=["rz", "sx", "x", "cx"],
         optimization_level=args.optimization_level,
         seed_transpiler=args.seed_transpiler,

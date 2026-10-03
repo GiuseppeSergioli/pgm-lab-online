@@ -542,8 +542,13 @@ def generic_unitary_cnot_upper_bound(qubit_count: int) -> int:
 
 
 def isolated_transpile_qpy(
-    qpy_payload: bytes,
+    qpy_payload: bytes | None,
     *,
+    isometry_matrix: NDArray | None = None,
+    system_qubits: int | None = None,
+    outcome_qubits: int | None = None,
+    input_state: NDArray | None = None,
+    circuit_name: str = "PGM_Naimark_isometry",
     reference_qpy_payload: bytes | None = None,
     input_subspace_dimension: int | None = None,
     timeout_seconds: int = 180,
@@ -554,6 +559,24 @@ def isolated_transpile_qpy(
     equivalence_tolerance: float = 1e-9,
 ) -> IsolatedTranspilation:
     """Transpile in a child process so a native crash cannot kill Streamlit."""
+
+    if (qpy_payload is None) == (isometry_matrix is None):
+        raise ValueError(
+            "Fornire esattamente uno tra circuito QPY e matrice isometrica."
+        )
+    if isometry_matrix is not None:
+        if system_qubits is None or system_qubits < 0:
+            raise ValueError("Numero di qubit di sistema non valido.")
+        if outcome_qubits is None or outcome_qubits < 1:
+            raise ValueError("Numero di qubit di uscita non valido.")
+        expected_shape = (
+            1 << (int(system_qubits) + int(outcome_qubits)),
+            1 << int(system_qubits),
+        )
+        if np.asarray(isometry_matrix).shape != expected_shape:
+            raise ValueError(
+                "La matrice isometrica non coincide con le dimensioni dei registri."
+            )
 
     worker = Path(__file__).with_name("transpile_worker.py")
     if not worker.exists():
@@ -588,12 +611,11 @@ def isolated_transpile_qpy(
         report_path = directory / "report.json"
         diagram_path = directory / "circuit.txt"
         reference_path = directory / "reference.qpy"
-        input_path.write_bytes(qpy_payload)
+        isometry_path = directory / "isometry.npy"
+        state_path = directory / "input_state.npy"
         command = [
             sys.executable,
             str(worker),
-            "--input",
-            str(input_path),
             "--output",
             str(output_path),
             "--report",
@@ -611,6 +633,35 @@ def isolated_transpile_qpy(
             "--equivalence-tolerance",
             str(float(equivalence_tolerance)),
         ]
+        if qpy_payload is not None:
+            input_path.write_bytes(qpy_payload)
+            command.extend(["--input", str(input_path)])
+        else:
+            np.save(
+                isometry_path,
+                np.asarray(isometry_matrix, dtype=np.complex128),
+                allow_pickle=False,
+            )
+            command.extend(
+                [
+                    "--isometry",
+                    str(isometry_path),
+                    "--system-qubits",
+                    str(int(system_qubits)),
+                    "--outcome-qubits",
+                    str(int(outcome_qubits)),
+                    "--circuit-name",
+                    str(circuit_name),
+                ]
+            )
+            if input_state is not None:
+                state = np.asarray(input_state, dtype=np.complex128).reshape(-1)
+                if state.size > (1 << int(system_qubits)):
+                    raise ValueError(
+                        "Lo stato di ingresso supera il registro di sistema."
+                    )
+                np.save(state_path, state, allow_pickle=False)
+                command.extend(["--input-state", str(state_path)])
         if reference_qpy_payload is not None:
             if input_subspace_dimension is None or input_subspace_dimension < 1:
                 raise ValueError(

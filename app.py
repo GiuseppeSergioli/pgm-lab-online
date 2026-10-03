@@ -62,7 +62,6 @@ from pgm_core import MethodResult, stable_predictions, symmetric_feature_map
 from quantum_pgm import (
     build_naimark_dilation,
     build_qiskit_circuit,
-    build_qiskit_isometry_circuit,
     build_reduced_pgm_measurement,
     circuit_svg,
     dilation_npz_bytes,
@@ -110,7 +109,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.4.0"
+APP_VERSION = "4.4.1"
 EXACT_CIRCUIT_QUBIT_LIMIT = 8
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 6
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -159,10 +158,15 @@ def construct_dilation_cached(
 
 
 def transpile_in_isolated_process(
-    qpy_payload: bytes,
+    qpy_payload: bytes | None,
     timeout_seconds: int,
     max_diagram_gates: int,
     *,
+    isometry_matrix: np.ndarray | None = None,
+    system_qubits: int | None = None,
+    outcome_qubits: int | None = None,
+    input_state: np.ndarray | None = None,
+    circuit_name: str = "PGM_Naimark_isometry",
     reference_qpy_payload: bytes | None = None,
     input_subspace_dimension: int | None = None,
     optimization_level: int = 0,
@@ -170,6 +174,11 @@ def transpile_in_isolated_process(
 ):
     return isolated_transpile_qpy(
         qpy_payload,
+        isometry_matrix=isometry_matrix,
+        system_qubits=system_qubits,
+        outcome_qubits=outcome_qubits,
+        input_state=input_state,
+        circuit_name=circuit_name,
         reference_qpy_payload=reference_qpy_payload,
         input_subspace_dimension=input_subspace_dimension,
         timeout_seconds=timeout_seconds,
@@ -751,7 +760,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
             )
             logical_qpy = qpy_bytes(circuit)
             synthesis_id = (
-                f"{selected_key}|{copies}|{int(random_seed)}|"
+                f"{APP_VERSION}|{selected_key}|{copies}|{int(random_seed)}|"
                 f"{PRIOR_LABELS[prior_label]}|{int(tolerance_exponent)}"
             )
             circuit_tab, outcomes_tab, checks_tab, hardware_tab, export_tab = st.tabs(
@@ -928,10 +937,6 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     FULL_GATE_DIAGRAM_LIMIT,
                                 )
 
-                            optimized_logical = build_qiskit_isometry_circuit(
-                                dilation
-                            )
-                            optimized_logical_qpy = qpy_bytes(optimized_logical)
                             candidate_reports = []
                             for candidate_level, candidate_seed in (
                                 (1, 42),
@@ -940,11 +945,14 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                             ):
                                 candidate_reports.append(
                                     transpile_in_isolated_process(
-                                        optimized_logical_qpy,
+                                        None,
                                         300
                                         if resources.total_qubits == 6
                                         else 180,
                                         FULL_GATE_DIAGRAM_LIMIT,
+                                        isometry_matrix=dilation.isometry,
+                                        system_qubits=resources.system_qubits,
+                                        outcome_qubits=resources.outcome_qubits,
                                         reference_qpy_payload=logical_qpy,
                                         input_subspace_dimension=(
                                             resources.padded_system_dimension
@@ -2079,11 +2087,6 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                             key=f"preflight_{preflight_id}",
                         ):
                             try:
-                                sample_circuit = build_sample_circuit(
-                                    dilation,
-                                    test_states[sample_index],
-                                    name=f"PGM_test_{sample_index + 1}",
-                                )
                                 reference_sample_circuit = build_sample_circuit(
                                     dilation,
                                     test_states[sample_index],
@@ -2095,9 +2098,16 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     "dello stato..."
                                 ):
                                     preflight_report = transpile_in_isolated_process(
-                                        qpy_bytes(sample_circuit),
+                                        None,
                                         300,
                                         FULL_GATE_DIAGRAM_LIMIT,
+                                        isometry_matrix=dilation.isometry,
+                                        system_qubits=resources.system_qubits,
+                                        outcome_qubits=resources.outcome_qubits,
+                                        input_state=test_states[sample_index],
+                                        circuit_name=(
+                                            f"PGM_test_{sample_index + 1}"
+                                        ),
                                         reference_qpy_payload=qpy_bytes(
                                             reference_sample_circuit
                                         ),

@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.4.0**
+**Versione 4.4.1**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -17,6 +17,16 @@ rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo 
 training costruisce inoltre una dilatazione di Naimark (chiamata *Neumark dilation*
 nel paper) della PGM, ne disegna il circuito Qiskit e verifica le sue probabilità
 sul test set.
+
+## Novità della versione 4.4.1
+
+- La matrice dell'isometria viene trasferita al processo isolato in formato
+  NumPy e la porta `Isometry` viene costruita direttamente nel worker. Questo
+  evita l'incompatibilità di deserializzazione QPY che poteva produrre
+  `Isometry.__init__() missing ... num_ancillas_zero ... num_ancillas_dirty`.
+- QPY viene usato per il circuito ottimizzato soltanto dopo la decomposizione
+  nella base standard `rz/sx/x/cx`; il confronto con l'unitaria PGM originale
+  e il certificato numerico di equivalenza restano invariati.
 
 ## Novità della versione 4.4.0
 
