@@ -26,6 +26,7 @@ import streamlit as st
 from sklearn.metrics import accuracy_score
 
 from complexity import (
+    automatic_encoded_feature_count,
     human_bytes,
     implementation_feasibility,
     paper_complexities,
@@ -111,11 +112,13 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.5.0"
-EXACT_CIRCUIT_QUBIT_LIMIT = 8
-ISOLATED_SYNTHESIS_QUBIT_LIMIT = 6
+APP_VERSION = "4.6.0"
+EXACT_CIRCUIT_QUBIT_LIMIT = 9
+ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
 AUTOMATIC_OPTIMIZATION_LEVELS = (1, 2, 3)
+AUTO_MAX_TENSOR_DIMENSION = 512
+AUTO_MAX_TOTAL_QUBITS = 7
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
@@ -126,6 +129,7 @@ def execute_experiment(
     random_seed: int,
     prior_mode: str,
     relative_tolerance: float,
+    max_encoded_features: int | None,
 ) -> dict:
     return run_experiment(
         dataset_key,
@@ -134,6 +138,7 @@ def execute_experiment(
         random_seed=random_seed,
         prior_mode=prior_mode,
         relative_tolerance=relative_tolerance,
+        max_encoded_features=max_encoded_features,
     )
 
 
@@ -444,10 +449,28 @@ with middle:
 with right:
     memory_budget_gib = st.select_slider(
         "Budget RAM per il calcolo",
-        options=[0.5, 1.0, 2.0, 4.0, 8.0],
-        value=2.0,
+        options=[0.5, 1.0, 2.0, 4.0, 8.0, 16.0],
+        value=8.0,
         format_func=lambda value: f"{value:g} GiB",
+        help=(
+            "È un limite di sicurezza dell'app, non aumenta la RAM fisicamente "
+            "disponibile sul server."
+        ),
     )
+
+feature_mode = st.radio(
+    "Gestione delle feature",
+    [
+        "Automatica quantum-ready (consigliata)",
+        "Tutte le feature originali",
+    ],
+    horizontal=True,
+    help=(
+        "La modalità automatica usa tutte le feature quando possibile; altrimenti "
+        "applica una PCA appresa solo sul training set, così restano eseguibili "
+        "c-PGM, k-PGM, r-PGM e il circuito."
+    ),
+)
 
 with st.expander("Impostazioni avanzate", expanded=False):
     advanced_1, advanced_2, advanced_3 = st.columns(3)
@@ -478,26 +501,51 @@ with st.expander("Impostazioni avanzate", expanded=False):
     )
 
 spec = get_dataset_spec(selected_key)
+if feature_mode.startswith("Automatica"):
+    encoded_feature_count = automatic_encoded_feature_count(
+        spec.features,
+        copies,
+        spec.classes,
+        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
+        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
+    )
+else:
+    encoded_feature_count = spec.features
 n_test_estimate = ceil(spec.samples * test_fraction)
 n_train_estimate = spec.samples - n_test_estimate
-tensor_dimension, symmetric_dimension = representation_dimensions(spec.features, copies)
+tensor_dimension, symmetric_dimension = representation_dimensions(
+    encoded_feature_count, copies
+)
 feasibility = implementation_feasibility(
     n_train=n_train_estimate,
     n_test=n_test_estimate,
-    dimension=spec.features,
+    dimension=encoded_feature_count,
     copies=copies,
     memory_budget_bytes=int(memory_budget_gib * 1024**3),
 )
 
 st.subheader("2. Controlla le dimensioni prima del calcolo")
-metric_1, metric_2, metric_3, metric_4 = st.columns(4)
+metric_1, metric_2, metric_3, metric_4, metric_5 = st.columns(5)
 metric_1.metric("N training stimato", f"{n_train_estimate:,}")
-metric_2.metric("d (feature codificate)", f"{spec.features:,}")
-metric_3.metric("d^c (c-PGM)", f"{tensor_dimension:,}")
-metric_4.metric("d_sym (r-PGM)", f"{symmetric_dimension:,}")
+metric_2.metric("Feature originali", f"{spec.features:,}")
+metric_3.metric("Feature codificate", f"{encoded_feature_count:,}")
+metric_4.metric("d^c (c-PGM)", f"{tensor_dimension:,}")
+metric_5.metric("d_sym (r-PGM)", f"{symmetric_dimension:,}")
+
+if encoded_feature_count < spec.features:
+    st.info(
+        "Riduzione automatica necessaria: "
+        f"{spec.features} → {encoded_feature_count} feature mediante PCA train-only. "
+        "La percentuale di varianza conservata verrà mostrata dopo il calcolo."
+    )
+else:
+    st.success(
+        "Nessuna riduzione necessaria: questa configurazione usa tutte le feature "
+        "originali."
+    )
 
 preview_circuit_resources = resources_for_dataset(
-    spec.features,
+    encoded_feature_count,
     copies,
     spec.classes,
     exact_qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
@@ -516,14 +564,15 @@ else:
         f"{preview_circuit_resources.total_qubits} qubit e matrice densa "
         f"{preview_circuit_resources.unitary_dimension:,} x "
         f"{preview_circuit_resources.unitary_dimension:,} "
-        f"({human_bytes(preview_circuit_resources.unitary_bytes)}). L'app mostrerà "
-        "lo schema logico, ma non materializzerà la matrice esatta oltre il limite "
-        f"prudenziale di {EXACT_CIRCUIT_QUBIT_LIMIT} qubit."
+        f"({human_bytes(preview_circuit_resources.unitary_bytes)}). La matrice esatta "
+        f"supera il limite prudenziale di {EXACT_CIRCUIT_QUBIT_LIMIT} qubit. "
+        "Seleziona la modalità automatica quantum-ready per mantenere disponibili "
+        "circuito, classificazione, validazione ed esecuzione quantistica."
     )
 
 preview_complexities = paper_complexities(
     n_train=n_train_estimate,
-    dimension=spec.features,
+    dimension=encoded_feature_count,
     copies=copies,
     class_count=spec.classes,
     gram_rank=None,
@@ -536,7 +585,8 @@ st.dataframe(
 st.caption(
     "Le formule e la memoria asintotica seguono le Tabelle 1, 2 e 5 del paper. "
     "I proxy sono conteggi dei termini dominanti, non FLOP misurati. Prima del run, "
-    "per k-PGM si usa il limite superiore r_G=N; dopo il run compare il rank effettivo."
+    "per k-PGM si usa il limite superiore r_G=N; dopo il run compare il rank effettivo. "
+    "Le dimensioni mostrate usano il numero di feature codificate indicato sopra."
 )
 
 if feasibility.feasible:
@@ -548,13 +598,16 @@ else:
     st.error(
         "Il confronto numerico è bloccato per evitare un crash: "
         + "; ".join(feasibility.reasons)
-        + ". Riduci c, scegli un dataset con meno feature o aumenta il budget RAM. "
+        + ". Usa la modalità automatica quantum-ready; in alternativa riduci c o "
+        "aumenta il budget solo se il computer dispone realmente di quella RAM. "
         "La tabella di complessità rimane comunque valida."
     )
 
 configuration_key = (
     selected_key,
     copies,
+    feature_mode,
+    encoded_feature_count,
     float(test_fraction),
     int(random_seed),
     PRIOR_LABELS[prior_label],
@@ -577,6 +630,7 @@ if run_clicked:
                 int(random_seed),
                 PRIOR_LABELS[prior_label],
                 10.0 ** (-int(tolerance_exponent)),
+                encoded_feature_count,
             )
         st.session_state["last_pgm_run"] = {
             "configuration_key": configuration_key,
@@ -642,7 +696,20 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
     st.dataframe(display_table, hide_index=True, width="stretch")
     st.caption(
         f"Dataset caricato da: {payload['source_used']}. Preprocessing: imputazione "
-        "mediana, min-max [0.001, 1] appreso solo sul training set, normalizzazione L2."
+        f"mediana, {payload['feature_transform']}, min-max [0.001, 1] e "
+        "normalizzazione L2; ogni trasformazione dipendente dai dati è appresa solo "
+        "sul training set."
+    )
+    encoding_columns = st.columns(3)
+    encoding_columns[0].metric("Feature originali", payload["raw_d"])
+    encoding_columns[1].metric("Feature utilizzate", payload["d"])
+    encoding_columns[2].metric(
+        "Varianza PCA conservata",
+        (
+            f"{100.0 * payload['explained_variance_ratio']:.2f}%"
+            if payload["d"] < payload["raw_d"]
+            else "100% (nessuna PCA)"
+        ),
     )
 
     with st.expander("Diagnostica numerica", expanded=False):
@@ -2600,7 +2667,8 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                     data=dilation_npz_bytes(
                         measurement,
                         dilation,
-                        feature_count=payload["d"],
+                        raw_feature_count=payload["raw_d"],
+                        encoded_feature_count=payload["d"],
                         copies=copies,
                     ),
                     file_name=f"dilatazione_PGM_{selected_key}_c{copies}.npz",
@@ -2620,8 +2688,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 f"{resources.unitary_dimension:,} x {resources.unitary_dimension:,} "
                 f"({human_bytes(resources.unitary_bytes)} in complex128). Per proteggere "
                 "la memoria, l'app mostra l'architettura dimensionata ma non materializza "
-                "U_PGM. Riduci il numero di copie o scegli un dataset con meno feature "
-                "per ottenere il circuito esatto esportabile."
+                "U_PGM. Seleziona **Automatica quantum-ready** per ottenere tutte le "
+                "schede, il circuito esatto esportabile e l'esecuzione quantistica; "
+                "in alternativa riduci il numero di copie."
             )
             st.markdown(circuit_drawing, unsafe_allow_html=True)
             st.caption(

@@ -856,7 +856,8 @@ def dilation_npz_bytes(
     measurement: PGMMeasurement,
     dilation: NaimarkDilation,
     *,
-    feature_count: int,
+    raw_feature_count: int,
+    encoded_feature_count: int,
     copies: int,
 ) -> bytes:
     if dilation.unitary is None:
@@ -867,7 +868,8 @@ def dilation_npz_bytes(
         unitary=dilation.unitary,
         effects=np.stack(measurement.effects),
         classes=np.asarray([str(value) for value in measurement.classes]),
-        raw_feature_count=np.asarray(feature_count),
+        raw_feature_count=np.asarray(raw_feature_count),
+        encoded_feature_count=np.asarray(encoded_feature_count),
         copies=np.asarray(copies),
         reduced_feature_dimension=np.asarray(measurement.feature_dimension),
         system_qubits=np.asarray(dilation.resources.system_qubits),

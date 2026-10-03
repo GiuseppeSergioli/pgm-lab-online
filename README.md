@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.5.0**
+**Versione 4.6.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -17,6 +17,21 @@ rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo 
 training costruisce inoltre una dilatazione di Naimark (chiamata *Neumark dilation*
 nel paper) della PGM, ne disegna il circuito Qiskit e verifica le sue probabilità
 sul test set.
+
+## Novità della versione 4.6.0
+
+- La modalità predefinita **Automatica quantum-ready** conserva tutte le feature
+  quando possibile e, soltanto quando necessario, applica una PCA addestrata sul
+  solo training set. Tutti i dataset del catalogo e tutti i valori `c=1,...,8`
+  restano così calcolabili con c-PGM, k-PGM, r-PGM e circuito quantistico.
+- Il criterio automatico sceglie il massimo numero di feature che mantiene
+  `d**c <= 512` e il circuito entro 7 qubit. L'interfaccia mostra sempre feature
+  originali, feature utilizzate e varianza PCA conservata.
+- Il limite della matrice unitaria esatta passa da 8 a 9 qubit: una matrice
+  `512 x 512` da 4 MiB non viene più bloccata. La sintesi automatica resta
+  isolata e limitata a 7 qubit per evitare arresti del server.
+- Il budget RAM di default è 8 GiB, ma viene esplicitamente presentato come limite
+  di sicurezza: non crea memoria fisica aggiuntiva sul computer o sul cloud.
 
 ## Novità della versione 4.5.0
 
@@ -118,12 +133,14 @@ senza leakage dal test set:
 
 1. split stratificato;
 2. imputazione con la mediana appresa sul training set;
-3. trasformazione min-max nell'intervallo `[0.001, 1]`, appresa sul training set;
-4. normalizzazione L2 riga per riga.
+3. se richiesta dalla modalità quantum-ready, standardizzazione e PCA apprese
+   esclusivamente sul training set;
+4. trasformazione min-max nell'intervallo `[0.001, 1]`, appresa sul training set;
+5. normalizzazione L2 riga per riga.
 
-L'estremo positivo `0.001` evita il vettore nullo senza aggiungere una feature: la
-dimensione `d` mostrata nell'interfaccia resta quindi il numero di feature del
-dataset.
+L'estremo positivo `0.001` evita il vettore nullo senza aggiungere una feature.
+L'interfaccia distingue la dimensione grezza del dataset dalla dimensione codificata
+`d` effettivamente usata dalle tre PGM e dal circuito.
 
 Per i prior di classe sono disponibili due opzioni:
 
@@ -194,7 +211,7 @@ Nell'interfaccia sono disponibili:
 - i residui numerici di completezza, isometria, unitarietà e regola di Born;
 - il confronto tra le predizioni del circuito e quelle di r-PGM;
 - il download del diagramma SVG, del circuito QPY e delle matrici NPZ;
-- fino a 6 qubit, una sintesi isolata nella base generica `rz`, `sx`, `x`, `cx`;
+- fino a 7 qubit, una sintesi isolata nella base generica `rz`, `sx`, `x`, `cx`;
 - l'ottimizzazione isometrica con confronto originale/ottimizzato e certificato
   di equivalenza sull'intero sottospazio PGM;
 - il circuito completo su più righe fino a 5.000 porte e, oltre tale soglia, il
@@ -205,9 +222,10 @@ limitati. Un eventuale errore nativo del transpiler non può quindi terminare il
 server Streamlit: l'app mostra l'errore e conserva training e risultati.
 
 La matrice di un'unitaria generica occupa memoria esponenziale. Per questo la
-materializzazione esatta è limitata a 8 qubit totali. Oltre tale soglia l'app mostra
-lo schema dimensionato e la memoria richiesta, ma non alloca la matrice. Riducendo
-`c` o scegliendo meno feature si torna al circuito esatto.
+materializzazione esatta è limitata a 9 qubit totali. Oltre tale soglia l'app mostra
+lo schema dimensionato e la memoria richiesta, ma non alloca la matrice. La modalità
+quantum-ready evita automaticamente questo caso con una riduzione train-only; la
+modalità con tutte le feature resta disponibile per confronti controllati.
 
 Il circuito logico mostrato implementa la **misura PGM** e assume che lo stato test
 sia già preparato nel registro `sys`. Prima di un'esecuzione su simulatore remoto o
@@ -353,8 +371,9 @@ segnaposto.
 Il c-PGM esplicito cresce molto rapidamente. Prima di abilitare il calcolo, l'app
 stima le principali allocazioni NumPy e controlla sia il budget RAM scelto sia la
 dimensione della diagonalizzazione densa. Se il run è bloccato, le complessità
-teoriche sono comunque mostrate; si può ridurre `c` o scegliere un dataset con meno
-feature.
+teoriche sono comunque mostrate. La modalità quantum-ready, attiva di default,
+sceglie invece il massimo numero di componenti PCA che rende eseguibili tutte le
+fasi; il budget RAM non viene usato per promettere risorse che il server non possiede.
 
 ## Test
 

@@ -34,6 +34,53 @@ def representation_dimensions(dimension: int, copies: int) -> tuple[int, int]:
     return dimension**copies, comb(dimension + copies - 1, copies)
 
 
+def _qubits_for_dimension(dimension: int) -> int:
+    if dimension < 1:
+        raise ValueError("La dimensione deve essere positiva.")
+    return (dimension - 1).bit_length()
+
+
+def automatic_encoded_feature_count(
+    raw_feature_count: int,
+    copies: int,
+    class_count: int,
+    *,
+    max_tensor_dimension: int = 512,
+    max_total_qubits: int = 7,
+    minimum_feature_count: int = 2,
+) -> int:
+    """Largest feature count that keeps all PGM representations executable.
+
+    The guard simultaneously bounds the explicit c-PGM tensor dimension and the
+    qubits required by the reduced symmetric representation plus the outcome
+    register.  A caller can then fit a train-only dimensionality reduction when
+    this count is smaller than the raw dataset dimension.
+    """
+
+    if min(raw_feature_count, copies, class_count) < 1:
+        raise ValueError("Feature, copie e classi devono essere positive.")
+    if max_tensor_dimension < 1 or max_total_qubits < 1:
+        raise ValueError("I limiti automatici devono essere positivi.")
+    lower = min(raw_feature_count, max(1, minimum_feature_count))
+    outcome_qubits = _qubits_for_dimension(class_count)
+    for candidate in range(raw_feature_count, lower - 1, -1):
+        tensor_dimension, symmetric_dimension = representation_dimensions(
+            candidate, copies
+        )
+        total_qubits = (
+            _qubits_for_dimension(symmetric_dimension) + outcome_qubits
+        )
+        if (
+            tensor_dimension <= max_tensor_dimension
+            and total_qubits <= max_total_qubits
+        ):
+            return candidate
+    raise ValueError(
+        "Nessuna dimensione di codifica soddisfa contemporaneamente i limiti "
+        "classici e quantistici selezionati."
+    )
+
+
 def paper_complexities(
     n_train: int,
     dimension: int,
