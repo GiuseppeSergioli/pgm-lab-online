@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.4.1**
+**Versione 4.5.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -17,6 +17,18 @@ rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo 
 training costruisce inoltre una dilatazione di Naimark (chiamata *Neumark dilation*
 nel paper) della PGM, ne disegna il circuito Qiskit e verifica le sue probabilità
 sul test set.
+
+## Novità della versione 4.5.0
+
+- Per ogni campione eseguito su Qiskit Aer, simulatore cloud o QPU, l'app prova
+  automaticamente i livelli di ottimizzazione 1, 2 e 3 sul circuito completo,
+  inclusa la preparazione dello stato.
+- Vengono ammessi all'esecuzione soltanto i candidati certificati equivalenti a
+  `U_PGM`; tra questi viene scelto quello con meno gate entangling, poi minore
+  profondità e infine meno porte totali.
+- L'interfaccia mostra il livello selezionato e un confronto trasparente dei tre
+  tentativi. Se nessuno supera la certificazione, simulazione e invio remoto
+  restano disabilitati.
 
 ## Novità della versione 4.4.1
 

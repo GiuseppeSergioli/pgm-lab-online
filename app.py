@@ -60,11 +60,13 @@ from hardware import (
 )
 from pgm_core import MethodResult, stable_predictions, symmetric_feature_map
 from quantum_pgm import (
+    best_certified_transpilation,
     build_naimark_dilation,
     build_qiskit_circuit,
     build_reduced_pgm_measurement,
     circuit_svg,
     dilation_npz_bytes,
+    entangling_gate_count,
     generic_unitary_cnot_upper_bound,
     isolated_transpile_qpy,
     outcome_probabilities,
@@ -109,10 +111,11 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.4.1"
+APP_VERSION = "4.5.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 8
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 6
 FULL_GATE_DIAGRAM_LIMIT = 5_000
+AUTOMATIC_OPTIMIZATION_LEVELS = (1, 2, 3)
 
 
 @st.cache_data(show_spinner=False, max_entries=12)
@@ -189,33 +192,68 @@ def transpile_in_isolated_process(
     )
 
 
-def _entangling_gate_count(report) -> int:
-    return int(
-        sum(
-            report.gate_counts.get(name, 0)
-            for name in ("cx", "cz", "ecr", "rzz", "iswap", "swap")
+def certified_isometry_candidates(
+    *,
+    isometry_matrix: np.ndarray,
+    system_qubits: int,
+    outcome_qubits: int,
+    reference_qpy_payload: bytes,
+    input_subspace_dimension: int,
+    timeout_seconds: int,
+    seed_transpiler: int,
+    input_state: np.ndarray | None = None,
+    circuit_name: str = "PGM_Naimark_isometry",
+):
+    """Try all automatic levels and return every report plus the best one."""
+
+    reports = [
+        transpile_in_isolated_process(
+            None,
+            timeout_seconds,
+            FULL_GATE_DIAGRAM_LIMIT,
+            isometry_matrix=isometry_matrix,
+            system_qubits=system_qubits,
+            outcome_qubits=outcome_qubits,
+            input_state=input_state,
+            circuit_name=circuit_name,
+            reference_qpy_payload=reference_qpy_payload,
+            input_subspace_dimension=input_subspace_dimension,
+            optimization_level=level,
+            seed_transpiler=seed_transpiler,
         )
-    )
-
-
-def _best_certified_synthesis(reports):
-    certified = [
-        report
-        for report in reports
-        if report.status in {"success", "partial"}
-        and report.equivalence_certified is True
-        and report.size is not None
-        and report.depth is not None
+        for level in AUTOMATIC_OPTIMIZATION_LEVELS
     ]
-    if not certified:
-        return None
-    return min(
-        certified,
-        key=lambda report: (
-            _entangling_gate_count(report),
-            report.depth,
-            report.size,
-        ),
+    return reports, best_certified_transpilation(reports)
+
+
+def optimization_attempts_frame(reports) -> pd.DataFrame:
+    """Compact, user-facing comparison of automatic synthesis attempts."""
+
+    return pd.DataFrame(
+        [
+            {
+                "Livello": report.optimization_level,
+                "Stato": report.status,
+                "Certificato": (
+                    "Sì"
+                    if report.equivalence_certified is True
+                    else (
+                        "No"
+                        if report.equivalence_certified is False
+                        else "Non disponibile"
+                    )
+                ),
+                "Gate entangling": (
+                    entangling_gate_count(report)
+                    if report.size is not None
+                    else None
+                ),
+                "Profondità": report.depth,
+                "Porte totali": report.size,
+                "Errore": report.equivalence_error,
+            }
+            for report in reports
+        ]
     )
 
 
@@ -937,32 +975,22 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     FULL_GATE_DIAGRAM_LIMIT,
                                 )
 
-                            candidate_reports = []
-                            for candidate_level, candidate_seed in (
-                                (1, 42),
-                                (2, 42),
-                                (3, 42),
-                            ):
-                                candidate_reports.append(
-                                    transpile_in_isolated_process(
-                                        None,
+                            candidate_reports, best_report = (
+                                certified_isometry_candidates(
+                                    isometry_matrix=dilation.isometry,
+                                    system_qubits=resources.system_qubits,
+                                    outcome_qubits=resources.outcome_qubits,
+                                    reference_qpy_payload=logical_qpy,
+                                    input_subspace_dimension=(
+                                        resources.padded_system_dimension
+                                    ),
+                                    timeout_seconds=(
                                         300
                                         if resources.total_qubits == 6
-                                        else 180,
-                                        FULL_GATE_DIAGRAM_LIMIT,
-                                        isometry_matrix=dilation.isometry,
-                                        system_qubits=resources.system_qubits,
-                                        outcome_qubits=resources.outcome_qubits,
-                                        reference_qpy_payload=logical_qpy,
-                                        input_subspace_dimension=(
-                                            resources.padded_system_dimension
-                                        ),
-                                        optimization_level=candidate_level,
-                                        seed_transpiler=candidate_seed,
-                                    )
+                                        else 180
+                                    ),
+                                    seed_transpiler=42,
                                 )
-                            best_report = _best_certified_synthesis(
-                                candidate_reports
                             )
                         st.session_state["certified_optimization"] = {
                             "id": synthesis_id,
@@ -1013,8 +1041,8 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     width="stretch",
                                 )
                         else:
-                            original_cx = _entangling_gate_count(baseline_report)
-                            optimized_cx = _entangling_gate_count(best_report)
+                            original_cx = entangling_gate_count(baseline_report)
+                            optimized_cx = entangling_gate_count(best_report)
                             comparison = pd.DataFrame(
                                 [
                                     {
@@ -1344,8 +1372,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 st.markdown("##### Esegui la PGM su simulatore o hardware reale")
                 st.write(
                     "Il circuito eseguibile include la preparazione dello stato del "
-                    "campione selezionato. Oltre agli shot puoi configurare seed, "
-                    "ottimizzazione, modello di rumore e provider. Le credenziali "
+                    "campione selezionato. Per le esecuzioni circuitali, l'app prova "
+                    "automaticamente i livelli di ottimizzazione 1, 2 e 3 e usa "
+                    "soltanto il miglior circuito che supera la certificazione. Puoi "
+                    "configurare shot, seed, modello di rumore e provider. Le credenziali "
                     "non entrano negli export o nella cache dell'app; possono essere "
                     "lette da variabili d'ambiente o dal file locale Streamlit Secrets."
                 )
@@ -1365,7 +1395,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                     ),
                     key=f"hardware_sample_{synthesis_id}",
                 )
-                execution_settings = st.columns(3)
+                execution_settings = st.columns(2)
                 with execution_settings[0]:
                     shots = int(
                         st.number_input(
@@ -1378,19 +1408,6 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                         )
                     )
                 with execution_settings[1]:
-                    optimization_level = int(
-                        st.select_slider(
-                            "Ottimizzazione transpiler",
-                            options=[0, 1, 2, 3],
-                            value=1,
-                            help=(
-                                "0 conserva la struttura; 3 cerca una riduzione più "
-                                "aggressiva delle porte e può richiedere più tempo."
-                            ),
-                            key=f"optimization_level_{synthesis_id}",
-                        )
-                    )
-                with execution_settings[2]:
                     execution_seed = int(
                         st.number_input(
                             "Seed simulatore/transpiler",
@@ -1401,6 +1418,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                             key=f"execution_seed_{synthesis_id}",
                         )
                     )
+                st.caption(
+                    "Esecuzioni circuitali: ottimizzazione automatica certificata, "
+                    "minimizzando gate entangling, poi profondità e porte totali."
+                )
 
                 execution_kind = st.radio(
                     "Tipo di risorsa",
@@ -1544,51 +1565,128 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 )
                             aer_id = (
                                 f"{synthesis_id}|aer|{sample_index}|{shots}|"
-                                f"{execution_seed}|{optimization_level}|{aer_method}|"
+                                f"{execution_seed}|auto123|{aer_method}|"
                                 f"{one_qubit_error}|{two_qubit_error}|{readout_error}"
                             )
+                            aer_too_large = (
+                                resources.total_qubits
+                                > ISOLATED_SYNTHESIS_QUBIT_LIMIT
+                            )
+                            if aer_too_large:
+                                st.error(
+                                    "Ottimizzazione Aer disabilitata: il circuito "
+                                    f"supera {ISOLATED_SYNTHESIS_QUBIT_LIMIT} qubit."
+                                )
                             if st.button(
-                                "Esegui circuito con Qiskit Aer",
+                                "Ottimizza automaticamente ed esegui con Aer",
                                 type="primary",
+                                disabled=aer_too_large,
                                 key=f"aer_simulate_{aer_id}",
                             ):
                                 try:
-                                    sample_circuit = build_sample_circuit(
+                                    reference_sample_circuit = build_sample_circuit(
                                         dilation,
                                         test_states[sample_index],
-                                        name=f"PGM_test_{sample_index + 1}",
+                                        name=(
+                                            f"PGM_test_{sample_index + 1}_reference"
+                                        ),
+                                        optimized_isometry=False,
                                     )
-                                    with st.spinner("Simulazione del circuito completo..."):
-                                        aer_counts = simulate_aer_shots(
-                                            sample_circuit,
-                                            shots=shots,
-                                            seed=execution_seed,
-                                            method=aer_method,
-                                            optimization_level=optimization_level,
-                                            one_qubit_error=one_qubit_error,
-                                            two_qubit_error=two_qubit_error,
-                                            readout_error=readout_error,
+                                    with st.spinner(
+                                        "Provo i livelli 1, 2 e 3, certifico "
+                                        "l'equivalenza e simulo il migliore..."
+                                    ):
+                                        aer_attempts, aer_best = (
+                                            certified_isometry_candidates(
+                                                isometry_matrix=dilation.isometry,
+                                                system_qubits=(
+                                                    resources.system_qubits
+                                                ),
+                                                outcome_qubits=(
+                                                    resources.outcome_qubits
+                                                ),
+                                                input_state=(
+                                                    test_states[sample_index]
+                                                ),
+                                                circuit_name=(
+                                                    f"PGM_test_{sample_index + 1}"
+                                                ),
+                                                reference_qpy_payload=qpy_bytes(
+                                                    reference_sample_circuit
+                                                ),
+                                                input_subspace_dimension=(
+                                                    resources.padded_system_dimension
+                                                ),
+                                                timeout_seconds=300,
+                                                seed_transpiler=execution_seed,
+                                            )
                                         )
+                                        aer_counts = None
+                                        if aer_best is not None:
+                                            executable_circuit = circuit_from_qpy(
+                                                aer_best.transpiled_qpy
+                                            )
+                                            aer_counts = simulate_aer_shots(
+                                                executable_circuit,
+                                                shots=shots,
+                                                seed=execution_seed,
+                                                method=aer_method,
+                                                # The selected circuit is already
+                                                # optimized and certified.
+                                                optimization_level=0,
+                                                one_qubit_error=one_qubit_error,
+                                                two_qubit_error=two_qubit_error,
+                                                readout_error=readout_error,
+                                            )
                                     st.session_state["aer_quantum_result"] = {
                                         "id": aer_id,
                                         "sample_index": sample_index,
                                         "counts": aer_counts,
+                                        "best": aer_best,
+                                        "attempts": aer_attempts,
                                     }
                                 except Exception as error:
                                     st.error(f"Simulazione Aer non riuscita: {error}")
                             aer_result = st.session_state.get("aer_quantum_result")
                             if aer_result and aer_result["id"] == aer_id:
-                                result_sample = int(aer_result["sample_index"])
-                                render_execution_result(
-                                    aer_result["counts"],
-                                    classes=classes,
-                                    theoretical_outcomes=(
-                                        circuit_probabilities[result_sample]
-                                    ),
-                                    outcome_qubits=resources.outcome_qubits,
-                                    actual_class=payload["y_test"][result_sample],
-                                    prediction_title="Predizione Aer",
-                                )
+                                aer_best = aer_result["best"]
+                                with st.expander(
+                                    "Confronto automatico dei livelli 1, 2 e 3",
+                                    expanded=False,
+                                ):
+                                    st.dataframe(
+                                        optimization_attempts_frame(
+                                            aer_result["attempts"]
+                                        ),
+                                        hide_index=True,
+                                        width="stretch",
+                                    )
+                                if aer_best is None:
+                                    st.error(
+                                        "Nessun candidato Aer ha superato la "
+                                        "certificazione: la simulazione non è stata "
+                                        "eseguita."
+                                    )
+                                else:
+                                    st.success(
+                                        "Aer ha eseguito il migliore circuito "
+                                        f"certificato: livello "
+                                        f"{aer_best.optimization_level}, "
+                                        f"{entangling_gate_count(aer_best):,} gate "
+                                        f"entangling, profondità "
+                                        f"{aer_best.depth:,}."
+                                    )
+                                    result_sample = int(aer_result["sample_index"])
+                                    render_execution_result(
+                                        aer_result["counts"],
+                                        classes=classes,
+                                        theoretical_outcomes=(
+                                            circuit_probabilities[result_sample]
+                                        ),
+                                        outcome_qubits=resources.outcome_qubits,
+                                        actual_class=payload["y_test"][result_sample],
+                                        prediction_title="Predizione Aer",
+                                    )
 
                     elif simulator_choice.startswith("☁️ IonQ"):
                         selected_provider = "ionq_simulator"
@@ -2064,15 +2162,16 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                             "di shot più bassi. Il limite effettivo dipende dal backend."
                         )
                     st.write(
-                        "Il preflight aggiunge la preparazione dello stato test e "
-                        "sintetizza l'isometria ottimizzata in un processo isolato. "
-                        "Prima dell'invio la confronta con U_PGM sull'intero "
-                        "sottospazio valido; il provider eseguirà poi una seconda "
-                        "transpilation nella base nativa del dispositivo."
+                        "Il preflight aggiunge la preparazione dello stato test, prova "
+                        "automaticamente i livelli 1, 2 e 3 in processi isolati e "
+                        "sceglie il migliore tra quelli equivalenti a U_PGM. Il "
+                        "provider eseguirà poi la necessaria conversione nella base "
+                        "nativa del dispositivo."
                     )
                     preflight_id = (
                         f"{synthesis_id}|{selected_provider}|"
-                        f"{selected_device.identifier}|{sample_index}|opt={optimization_level}"
+                        f"{selected_device.identifier}|{sample_index}|"
+                        f"auto123|seed={execution_seed}"
                     )
                     if resources.total_qubits > ISOLATED_SYNTHESIS_QUBIT_LIMIT:
                         st.error(
@@ -2082,7 +2181,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                         )
                     else:
                         if st.button(
-                            "Prepara e verifica il circuito hardware",
+                            "Ottimizza, certifica e prepara il circuito",
                             disabled=not device_has_capacity,
                             key=f"preflight_{preflight_id}",
                         ):
@@ -2094,33 +2193,39 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     optimized_isometry=False,
                                 )
                                 with st.spinner(
-                                    "Decomposizione completa, inclusa la preparazione "
-                                    "dello stato..."
+                                    "Provo i livelli 1, 2 e 3 sul circuito completo "
+                                    "e certifico ogni candidato..."
                                 ):
-                                    preflight_report = transpile_in_isolated_process(
-                                        None,
-                                        300,
-                                        FULL_GATE_DIAGRAM_LIMIT,
-                                        isometry_matrix=dilation.isometry,
-                                        system_qubits=resources.system_qubits,
-                                        outcome_qubits=resources.outcome_qubits,
-                                        input_state=test_states[sample_index],
-                                        circuit_name=(
-                                            f"PGM_test_{sample_index + 1}"
-                                        ),
-                                        reference_qpy_payload=qpy_bytes(
-                                            reference_sample_circuit
-                                        ),
-                                        input_subspace_dimension=(
-                                            resources.padded_system_dimension
-                                        ),
-                                        optimization_level=optimization_level,
-                                        seed_transpiler=execution_seed,
+                                    preflight_attempts, preflight_report = (
+                                        certified_isometry_candidates(
+                                            isometry_matrix=dilation.isometry,
+                                            system_qubits=(
+                                                resources.system_qubits
+                                            ),
+                                            outcome_qubits=(
+                                                resources.outcome_qubits
+                                            ),
+                                            input_state=(
+                                                test_states[sample_index]
+                                            ),
+                                            circuit_name=(
+                                                f"PGM_test_{sample_index + 1}"
+                                            ),
+                                            reference_qpy_payload=qpy_bytes(
+                                                reference_sample_circuit
+                                            ),
+                                            input_subspace_dimension=(
+                                                resources.padded_system_dimension
+                                            ),
+                                            timeout_seconds=300,
+                                            seed_transpiler=execution_seed,
+                                        )
                                     )
                                 st.session_state["hardware_preflight"] = {
                                     "id": preflight_id,
                                     "sample_index": sample_index,
                                     "report": preflight_report,
+                                    "attempts": preflight_attempts,
                                 }
                             except Exception as error:
                                 st.error(f"Preflight non riuscito: {error}")
@@ -2131,20 +2236,58 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                             and saved_preflight["id"] == preflight_id
                         ):
                             preflight_report = saved_preflight["report"]
-                            if preflight_report.status not in {"success", "partial"}:
+                            preflight_attempts = saved_preflight["attempts"]
+                            with st.expander(
+                                "Confronto automatico dei livelli 1, 2 e 3",
+                                expanded=False,
+                            ):
+                                st.dataframe(
+                                    optimization_attempts_frame(
+                                        preflight_attempts
+                                    ),
+                                    hide_index=True,
+                                    width="stretch",
+                                )
+                            if preflight_report is None:
+                                st.error(
+                                    "Nessuno dei tre candidati ha superato la "
+                                    "certificazione. Il job non può essere inviato."
+                                )
+                                with st.expander(
+                                    "Messaggi diagnostici", expanded=False
+                                ):
+                                    for attempt in preflight_attempts:
+                                        st.write(
+                                            f"Livello {attempt.optimization_level}: "
+                                            f"{attempt.message}"
+                                        )
+                            elif preflight_report.status not in {
+                                "success",
+                                "partial",
+                            }:
                                 st.error(preflight_report.message)
                             else:
                                 if preflight_report.status == "partial":
                                     st.warning(preflight_report.message)
-                                preflight_columns = st.columns(3)
+                                preflight_columns = st.columns(4)
                                 preflight_columns[0].metric(
-                                    "Porte preflight", f"{preflight_report.size:,}"
+                                    "Livello scelto",
+                                    preflight_report.optimization_level,
                                 )
                                 preflight_columns[1].metric(
-                                    "Profondità", f"{preflight_report.depth:,}"
+                                    "Gate entangling",
+                                    f"{entangling_gate_count(preflight_report):,}",
                                 )
                                 preflight_columns[2].metric(
-                                    "Qubit", resources.total_qubits
+                                    "Profondità", f"{preflight_report.depth:,}"
+                                )
+                                preflight_columns[3].metric(
+                                    "Porte totali", f"{preflight_report.size:,}"
+                                )
+                                st.caption(
+                                    f"Circuito su {resources.total_qubits} qubit. "
+                                    "Criterio di scelta: gate entangling, profondità, "
+                                    "poi porte totali."
                                 )
                                 preflight_gate_table = pd.DataFrame(
                                     [
@@ -2166,7 +2309,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 )
                                 if preflight_report.equivalence_certified is True:
                                     st.success(
-                                        "Preflight certificato equivalente a U_PGM · "
+                                        "Migliore preflight certificato equivalente a "
+                                        f"U_PGM: livello "
+                                        f"{preflight_report.optimization_level} · "
                                         f"errore massimo "
                                         f"{preflight_report.equivalence_error:.3e}."
                                     )
@@ -2262,6 +2407,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                         executable_circuit = circuit_from_qpy(
                                             preflight_report.transpiled_qpy
                                         )
+                                        native_optimization_level = int(
+                                            preflight_report.optimization_level or 1
+                                        )
                                         with st.spinner(
                                             "Invio del job; il risultato verrà letto "
                                             "solo su richiesta..."
@@ -2292,7 +2440,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                                     backend_name=selected_device.name,
                                                     shots=shots,
                                                     optimization_level=(
-                                                        optimization_level
+                                                        native_optimization_level
                                                     ),
                                                     noise_model=(
                                                         ionq_noise_model
@@ -2309,7 +2457,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                                     backend_name=selected_device.name,
                                                     shots=shots,
                                                     optimization_level=(
-                                                        optimization_level
+                                                        native_optimization_level
                                                     ),
                                                 )
                                             else:

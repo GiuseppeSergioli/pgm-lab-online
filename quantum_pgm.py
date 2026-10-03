@@ -89,6 +89,56 @@ class IsolatedTranspilation:
     seed_transpiler: int | None = None
 
 
+ENTANGLING_GATE_NAMES = frozenset(
+    {"cx", "cz", "ecr", "rxx", "ryy", "rzz", "iswap", "swap"}
+)
+
+
+def entangling_gate_count(report: IsolatedTranspilation) -> int:
+    """Count two-qubit/entangling operations in a transpilation report."""
+
+    return int(
+        sum(
+            count
+            for name, count in report.gate_counts.items()
+            if name.lower() in ENTANGLING_GATE_NAMES
+        )
+    )
+
+
+def best_certified_transpilation(
+    reports: list[IsolatedTranspilation] | tuple[IsolatedTranspilation, ...],
+) -> IsolatedTranspilation | None:
+    """Choose the most hardware-friendly candidate with certified equivalence.
+
+    Entangling gates dominate current-device error, so they are minimized first;
+    circuit depth and total gate count are deterministic tie-breakers.
+    """
+
+    certified = [
+        report
+        for report in reports
+        if report.status in {"success", "partial"}
+        and report.equivalence_certified is True
+        and report.transpiled_qpy is not None
+        and report.size is not None
+        and report.depth is not None
+    ]
+    if not certified:
+        return None
+    return min(
+        certified,
+        key=lambda report: (
+            entangling_gate_count(report),
+            report.depth,
+            report.size,
+            report.optimization_level
+            if report.optimization_level is not None
+            else 99,
+        ),
+    )
+
+
 def subspace_equivalence_metrics(
     reference_matrix: NDArray,
     candidate_matrix: NDArray,
