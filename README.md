@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.8.0**
+**Versione 4.9.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -14,9 +14,19 @@ Classifiers*:
 
 L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
-training costruisce inoltre una dilatazione di Naimark (chiamata *Neumark dilation*
-nel paper) della PGM, ne disegna il circuito Qiskit e verifica le sue probabilità
-sul test set.
+training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
+circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Novità della versione 4.9.0
+
+- L'interfaccia è interamente bilingue. Parte in italiano e le due bandiere in
+  alto a destra permettono di passare in qualsiasi momento all'inglese e viceversa.
+- Il cambio lingua copre sezioni, schede, finestre espandibili, controlli, messaggi
+  dinamici, tabelle, diagnostica, provider quantistici e file CSV/SVG esportati.
+- Dataset, parametri selezionati e risultati del calcolo restano invariati durante
+  il cambio lingua: la traduzione è applicata soltanto alla presentazione.
+- L'introduzione usa ora una terminologia pubblica e autonoma, senza annotazioni
+  redazionali riferite al paper.
 
 ## Novità della versione 4.8.0
 

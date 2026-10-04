@@ -1,0 +1,1083 @@
+"""Presentation-only internationalization for the Streamlit interface.
+
+The scientific code keeps stable Italian/internal values so changing language can
+never alter a branch, cache key, prediction, circuit or provider request.  This
+module translates only values at the rendering boundary and maps widget choices
+back to their original values.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+import re
+from typing import Any
+
+import pandas as pd
+
+
+DEFAULT_LANGUAGE = "it"
+SUPPORTED_LANGUAGES = ("it", "en")
+
+
+# Short labels and complete standalone messages.  Keys are the canonical Italian
+# UI text already used by the application; values are public-facing English.
+EXACT_TRANSLATIONS: dict[str, str] = {
+    "Uniformi tra classi (p_j = 1/l)": "Uniform across classes (p_j = 1/l)",
+    "Empirici (p_j = n_j/N)": "Empirical (p_j = n_j/N)",
+    "Livello": "Level",
+    "Stato": "Status",
+    "Certificato": "Certified",
+    "Non disponibile": "Not available",
+    "Gate entangling": "Entangling gates",
+    "Profondità": "Depth",
+    "Porte totali": "Total gates",
+    "Errore": "Error",
+    "Messaggio": "Message",
+    "Metodo": "Method",
+    "Dimensione di lavoro": "Working dimension",
+    "Tempo training (Big-O)": "Training time (Big-O)",
+    "Proxy training": "Training proxy",
+    "Memoria training (Big-O)": "Training memory (Big-O)",
+    "Stima memoria paper": "Paper memory estimate",
+    "Tempo predizione/campione": "Prediction time/sample",
+    "Proxy predizione": "Prediction proxy",
+    "Memoria predizione": "Prediction memory",
+    "Stima memoria predizione": "Prediction memory estimate",
+    "Accuratezza": "Accuracy",
+    "Accordo con c-PGM": "Agreement with c-PGM",
+    "Rank numerico": "Numerical rank",
+    "Dimensione": "Dimension",
+    "Calcolo": "Computation",
+    "Training (s)": "Training (s)",
+    "Predizione (s)": "Prediction (s)",
+    "Stato modello": "Model state",
+    "feature originali": "original features",
+    "Non materializzato": "Not materialized",
+    "esplicita indipendente": "independent explicit",
+    "kernel diretto indipendente": "independent direct kernel",
+    "equivalente esatta via kernel (matrice non materializzata)": (
+        "exactly equivalent via kernel (matrix not materialized)"
+    ),
+    "Classe reale": "Actual class",
+    "Classe predetta": "Predicted class",
+    "Classe": "Class",
+    "classe_reale": "actual_class",
+    "predizione_c_PGM": "c_PGM_prediction",
+    "predizione_k_PGM": "k_PGM_prediction",
+    "predizione_r_PGM": "r_PGM_prediction",
+    "Corretta": "Correct",
+    "Errata": "Incorrect",
+    "✓ Corretta": "✓ Correct",
+    "✗ Errata": "✗ Incorrect",
+    "Esito": "Outcome",
+    "Distanza dalla teoria": "Distance from theory",
+    "Frequenza": "Frequency",
+    "Conteggi": "Counts",
+    "Bitstring": "Bitstring",
+    "Non assegnata": "Unassigned",
+    "Versione": "Version",
+    "Che cosa significa 'equivalenti'?": "What does ‘equivalent’ mean?",
+    "1. Scegli il dataset": "1. Choose a dataset",
+    "Repository pubblico": "Public repository",
+    "Apri fonte": "Open source",
+    "Dataset": "Dataset",
+    "Campioni": "Samples",
+    "Feature/campione": "Features/sample",
+    "Classi": "Classes",
+    "Ambito": "Domain",
+    "Repository": "Repository",
+    "Numero di copie c": "Number of copies c",
+    "Budget RAM per il calcolo": "Computation RAM budget",
+    "Gestione delle feature": "Feature handling",
+    "Automatica quantum-ready (consigliata)": "Automatic quantum-ready (recommended)",
+    "Tutte le feature originali": "All original features",
+    "Impostazioni avanzate": "Advanced settings",
+    "Quota test set": "Test-set fraction",
+    "Seed dello split": "Split seed",
+    "Prior di classe": "Class prior",
+    "Soglia spettrale relativa": "Relative spectral threshold",
+    "2. Controlla le dimensioni prima del calcolo": "2. Check dimensions before running",
+    "N training stimato": "Estimated training N",
+    "Feature originali": "Original features",
+    "Feature codificate": "Encoded features",
+    "Feature utilizzate": "Features used",
+    "Esegui i classificatori e costruisci il circuito": (
+        "Run the classifiers and build the circuit"
+    ),
+    "Esegui i classificatori (circuito non materializzato)": (
+        "Run the classifiers (circuit not materialized)"
+    ),
+    "3. Risultati": "3. Results",
+    "Varianza PCA conservata": "PCA variance retained",
+    "100% (nessuna PCA)": "100% (no PCA)",
+    "Campioni test": "Test samples",
+    "Classificazioni corrette": "Correct classifications",
+    "Errori": "Errors",
+    "Campione test": "Test sample",
+    "Risultato di ogni campione": "Result for each sample",
+    "Diagnostica numerica": "Numerical diagnostics",
+    "Confronto": "Comparison",
+    "Scarto massimo assoluto score": "Maximum absolute score difference",
+    "soglia_spettrale": "spectral_threshold",
+    "autovalore_minimo_grezzo": "raw_minimum_eigenvalue",
+    "errore_massimo_norma_feature": "maximum_feature_norm_error",
+    "4. Circuito quantistico della PGM": "4. PGM quantum circuit",
+    "Dimensione ridotta": "Reduced dimension",
+    "Qubit sistema": "System qubits",
+    "Qubit esito": "Outcome qubits",
+    "Qubit totali": "Total qubits",
+    "Matrice U_PGM": "U_PGM matrix",
+    "Indice esito": "Outcome index",
+    "Bitstring misurata": "Measured bitstring",
+    "Interpretazione": "Interpretation",
+    "Circuito logico": "Logical circuit",
+    "Classificazione test": "Test classification",
+    "Validazione matematica": "Mathematical validation",
+    "Esecuzione quantistica": "Quantum execution",
+    "Esporta": "Export",
+    "Limite superiore CNOT (unitaria generica)": "CNOT upper bound (generic unitary)",
+    "Soglia disegno completo": "Full-diagram threshold",
+    "Sintesi isolata fino a": "Isolated synthesis up to",
+    "Sintetizza e mostra la decomposizione completa": (
+        "Synthesize and show the full decomposition"
+    ),
+    "Tempo sintesi": "Synthesis time",
+    "Numero": "Count",
+    "Diagramma circuitale completo": "Full circuit diagram",
+    "Scarica circuito completo (TXT)": "Download full circuit (TXT)",
+    "Scarica circuito decomposto (QPY)": "Download decomposed circuit (QPY)",
+    "Dettagli dei tentativi": "Attempt details",
+    "Indicatore": "Metric",
+    "Originale": "Original",
+    "Ottimizzato": "Optimized",
+    "Riduzione": "Reduction",
+    "Errore massimo": "Maximum error",
+    "Tolleranza": "Tolerance",
+    "Fedeltà sottospazio": "Subspace fidelity",
+    "Circuito ottimizzato e conteggio porte": "Optimized circuit and gate counts",
+    "Diagramma completo ottimizzato": "Full optimized diagram",
+    "Scarica circuito ottimizzato (QPY)": "Download optimized circuit (QPY)",
+    "Scarica diagramma ottimizzato (TXT)": "Download optimized diagram (TXT)",
+    "Mostra": "Show",
+    "Solo errori": "Errors only",
+    "Tutti i campioni": "All samples",
+    "Solo corretti": "Correct only",
+    "Confidenza": "Confidence",
+    "Margine 1ª-2ª": "1st–2nd margin",
+    "Scostamento max |circuito-teoria|": "Max |circuit-theory| deviation",
+    "Lettura rapida": "Quick reading",
+    "Nessun campione in questa categoria.": "No samples in this category.",
+    "Dettaglio completo delle probabilità teoriche e circuitali": (
+        "Full theoretical and circuit probability details"
+    ),
+    "Scarica classificazioni dettagliate (CSV)": (
+        "Download detailed classifications (CSV)"
+    ),
+    "Scostamento massimo": "Maximum deviation",
+    "Scostamento medio": "Mean deviation",
+    "Errore somma probabilità": "Probability-sum error",
+    "Accordo circuito/r-PGM": "Circuit/r-PGM agreement",
+    "Controllo": "Check",
+    "Significato": "Meaning",
+    "Isometria V†V = I": "Isometry V†V = I",
+    "Unitarietà U†U = I": "Unitarity U†U = I",
+    "La POVM è completa": "The POVM is complete",
+    "V conserva la norma": "V preserves the norm",
+    "U_PGM è una trasformazione quantistica valida": (
+        "U_PGM is a valid quantum transformation"
+    ),
+    "Il circuito riproduce gli effetti F_j": "The circuit reproduces the F_j effects",
+    "Ogni distribuzione è normalizzata": "Every distribution is normalized",
+    "Campione del test set da eseguire": "Test-set sample to run",
+    "Numero di shot": "Number of shots",
+    "Seed simulatore/transpiler": "Simulator/transpiler seed",
+    "Tipo di risorsa": "Resource type",
+    "🧪 Simulatori": "🧪 Simulators",
+    "⚛️ Computer quantistici reali": "⚛️ Real quantum computers",
+    "Simulatore": "Simulator",
+    "💻 PGM ideale locale — campionamento diretto": (
+        "💻 Local ideal PGM — direct sampling"
+    ),
+    "🧰 Qiskit Aer locale — circuito ideale o rumoroso": (
+        "🧰 Local Qiskit Aer — ideal or noisy circuit"
+    ),
+    "☁️ IonQ Cloud — ideale o modello di rumore": (
+        "☁️ IonQ Cloud — ideal or noise model"
+    ),
+    "☁️ Amazon Braket — simulatore gestito AWS": (
+        "☁️ Amazon Braket — AWS-managed simulator"
+    ),
+    "Esegui campionamento ideale": "Run ideal sampling",
+    "Predizione a shot": "Shot-based prediction",
+    "Automatico": "Automatic",
+    "Matrice densità": "Density matrix",
+    "Modello di rumore": "Noise model",
+    "Ideale": "Ideal",
+    "Depolarizzante configurabile": "Configurable depolarizing noise",
+    "Errore gate 1-qubit": "1-qubit gate error",
+    "Errore gate 2-qubit": "2-qubit gate error",
+    "Errore di lettura": "Readout error",
+    "Metodo Aer": "Aer method",
+    "Ottimizza automaticamente ed esegui con Aer": (
+        "Optimize automatically and run with Aer"
+    ),
+    "Confronto automatico dei livelli 1, 2 e 3": (
+        "Automatic comparison of levels 1, 2 and 3"
+    ),
+    "Predizione Aer": "Aer prediction",
+    "Provider hardware": "Hardware provider",
+    "🔵 IBM Quantum — QPU superconduttive": "🔵 IBM Quantum — superconducting QPUs",
+    "🟣 IonQ Quantum Cloud — QPU a ioni intrappolati": (
+        "🟣 IonQ Quantum Cloud — trapped-ion QPUs"
+    ),
+    "Autenticazione AWS": "AWS authentication",
+    "Credenziali temporanee AWS": "Temporary AWS credentials",
+    "Credenziali protette del deployment": "Protected deployment credentials",
+    "Profilo AWS locale / SSO": "Local AWS profile / SSO",
+    "Profilo AWS locale": "Local AWS profile",
+    "Regione AWS": "AWS region",
+    "Verifica identità e aggiorna dispositivi": "Verify identity and refresh devices",
+    "Dispositivo Amazon Braket": "Amazon Braket device",
+    "Token Munich Quantum Portal": "Munich Quantum Portal token",
+    "Mostra soltanto risorse online": "Show online resources only",
+    "Accoda se la risorsa diventa offline": "Queue if the resource goes offline",
+    "Connetti e aggiorna risorse LRZ": "Connect and refresh LRZ resources",
+    "Risorsa LRZ/MQSS": "LRZ/MQSS resource",
+    "Modello di rumore IonQ": "IonQ noise model",
+    "Connetti e aggiorna risorse IonQ": "Connect and refresh IonQ resources",
+    "Backend IonQ": "IonQ backend",
+    "IBM Quantum API key (facoltativa se già salvata)": (
+        "IBM Quantum API key (optional if already saved)"
+    ),
+    "CRN istanza IBM (consigliato)": "IBM instance CRN (recommended)",
+    "Connetti e aggiorna QPU IBM": "Connect and refresh IBM QPUs",
+    "QPU IBM Quantum": "IBM Quantum QPU",
+    "Livello scelto": "Selected level",
+    "Ottimizza, certifica e prepara il circuito": (
+        "Optimize, certify and prepare the circuit"
+    ),
+    "Messaggi diagnostici": "Diagnostic messages",
+    "Mostra il circuito hardware completo": "Show the full hardware circuit",
+    "Circuito con state preparation": "Circuit with state preparation",
+    "Invia job quantistico": "Submit quantum job",
+    "Aggiorna stato": "Refresh status",
+    "Scarica risultato": "Download result",
+    "Annulla job": "Cancel job",
+    "Predizione provider": "Provider prediction",
+    "CX / porte entangling": "CX / entangling gates",
+    "Gate": "Gate",
+    "Scarica diagramma SVG": "Download SVG diagram",
+    "Scarica circuito QPY": "Download QPY circuit",
+    "Scarica matrici NPZ": "Download NPZ matrices",
+    "Scarica le predizioni (CSV)": "Download predictions (CSV)",
+    "Confermo di voler inviare il job alla risorsa LRZ selezionata usando la mia allocazione.": (
+        "I confirm that I want to submit the job to the selected LRZ resource "
+        "using my allocation."
+    ),
+    "Confermo di voler inviare un task AWS che può usare quota o generare costi.": (
+        "I confirm that I want to submit an AWS task that may consume quota or "
+        "incur charges."
+    ),
+    "Confermo di voler inviare un task AWS che può generare costi sul mio account.": (
+        "I confirm that I want to submit an AWS task that may incur charges on "
+        "my account."
+    ),
+    "Confermo di voler inviare un job IonQ che può usare quota o generare costi.": (
+        "I confirm that I want to submit an IonQ job that may consume quota or "
+        "incur charges."
+    ),
+    "Confermo di voler inviare il job alla QPU IonQ selezionata e di accettarne quota o costi.": (
+        "I confirm that I want to submit the job to the selected IonQ QPU and "
+        "accept the associated quota usage or charges."
+    ),
+    "Confermo di voler inviare il job alla QPU IBM selezionata usando la mia istanza.": (
+        "I confirm that I want to submit the job to the selected IBM QPU using "
+        "my instance."
+    ),
+    "Medicina": "Medicine",
+    "Sintetico": "Synthetic",
+    "Botanica": "Botany",
+    "Bioinformatica": "Bioinformatics",
+    "Materiali": "Materials",
+    "Chimica": "Chemistry",
+    "Visione artificiale": "Computer vision",
+    "Zoologia": "Zoology",
+    "Segnali sonar": "Sonar signals",
+    "Ingegneria software": "Software engineering",
+    "Autenticazione": "Authentication",
+    "Donazioni di sangue": "Blood donation",
+    "Climatologia": "Climatology",
+    "Agricoltura": "Agriculture",
+    "Benchmark sintetico": "Synthetic benchmark",
+    "Two Moons (sintetico)": "Two Moons (synthetic)",
+    "Banana OpenML (sottoinsieme fisso)": "Banana OpenML (fixed subset)",
+    "Concentric Circles (sintetico)": "Concentric Circles (synthetic)",
+    "Gaussian Blobs, 3 classi (sintetico)": "Gaussian Blobs, 3 classes (synthetic)",
+    "XOR rumoroso (sintetico)": "Noisy XOR (synthetic)",
+    "Three Spirals (sintetico)": "Three Spirals (synthetic)",
+    "Sì": "Yes",
+    "No": "No",
+    "QPU / RISORSA MQSS": "QPU / MQSS RESOURCE",
+    "scikit-learn locale (copia del dataset pubblico UCI)": (
+        "local scikit-learn copy of the public UCI dataset"
+    ),
+    "dispositivo": "device",
+    "stato": "status",
+}
+
+
+# Long Markdown blocks are matched after whitespace normalization.  Keeping them
+# here preserves equations and formatting while providing natural English prose.
+NORMALIZED_TRANSLATIONS: dict[str, str] = {
+    (
+        "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
+        "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, prior, "
+        "split e soglia spettrale. Dopo il training, l'app costruisce anche il circuito "
+        "quantistico della PGM mediante una dilatazione di Naimark."
+    ): (
+        "Reproducible comparison of **c-PGM**, **k-PGM**, and **r-PGM (Rc-PGM)**. "
+        "The three classifiers use different representations with the same data, "
+        "class priors, train/test split, and spectral threshold. After training, the "
+        "app also builds the quantum circuit implementing the PGM through a Naimark "
+        "dilation."
+    ),
+    (
+        "- **c-PGM** costruisce esplicitamente il tensore di dimensione $d^c$. "
+        "- **k-PGM** usa il kernel omogeneo $\\langle x,z\\rangle^c$ e una matrice "
+        "$N\\times N$. - **r-PGM** usa la base simmetrica minima di dimensione "
+        "$d_{sym}=\\binom{d+c-1}{c}$. L'equivalenza teorica riguarda gli score di "
+        "classe. L'app verifica sia lo scarto massimo tra gli score sia l'identità "
+        "delle predizioni, usando la stessa regola deterministica in caso di pareggio "
+        "numerico. Il termine di completamento $P_{ker(\\sigma)}/l$ viene omesso dagli "
+        "score perché è uguale per ogni classe e non modifica l'argmax, come osservato "
+        "nell'appendice del paper."
+    ): (
+        "- **c-PGM** explicitly builds the tensor representation of dimension $d^c$.\n"
+        "- **k-PGM** uses the homogeneous kernel $\\langle x,z\\rangle^c$ and an "
+        "$N\\times N$ matrix.\n"
+        "- **r-PGM** uses the minimal symmetric basis of dimension "
+        "$d_{sym}=\\binom{d+c-1}{c}$.\n\n"
+        "The theoretical equivalence concerns the class scores. The app checks both "
+        "the maximum score discrepancy and prediction identity, using the same "
+        "deterministic rule for numerical ties. The completion term "
+        "$P_{ker(\\sigma)}/l$ is omitted because it is identical for every class and "
+        "does not change the argmax."
+    ),
+    (
+        "L'app usa la PGM ridotta, equivalente alle altre due formulazioni. Completa "
+        "gli effetti sul nucleo di $\\sigma$ e costruisce l'isometria canonica $$ "
+        "U_{\\mathrm{PGM}}\\bigl(|0\\rangle_{\\mathrm{out}}\\otimes|\\psi\\rangle_{\\mathrm{sys}}\\bigr) "
+        "=\\sum_j |j\\rangle_{\\mathrm{out}}\\otimes\\sqrt{F_j}\\,|\\psi\\rangle_{\\mathrm{sys}}, "
+        "\\qquad \\Pr(j\\mid\\psi)=\\langle\\psi|F_j|\\psi\\rangle . $$ Il registro "
+        "**sys** riceve lo stato test già codificato nella base simmetrica; il registro "
+        "**out** parte da zero e la sua misura restituisce la classe."
+    ): (
+        "The app uses the reduced PGM, which is equivalent to the other two "
+        "formulations. It completes the effects on the kernel of $\\sigma$ and builds "
+        "the canonical isometry\n\n$$\n"
+        "U_{\\mathrm{PGM}}\\bigl(|0\\rangle_{\\mathrm{out}}\\otimes|\\psi\\rangle_{\\mathrm{sys}}\\bigr) "
+        "=\\sum_j |j\\rangle_{\\mathrm{out}}\\otimes\\sqrt{F_j}\\,|\\psi\\rangle_{\\mathrm{sys}}, "
+        "\\qquad \\Pr(j\\mid\\psi)=\\langle\\psi|F_j|\\psi\\rangle .\n$$\n\n"
+        "The **sys** register receives the test state already encoded in the symmetric "
+        "basis. The **out** register starts at zero, and measuring it returns the class."
+    ),
+}
+
+
+# Ordered substitutions cover dynamic f-strings whose numbers, provider messages,
+# class labels, or backend names are only known at runtime.  Longer fragments are
+# applied first to prevent partial replacements.
+PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
+    ("· classificatori equivalenti, circuito completo e integrazione quantistica protetta", "· equivalent classifiers, full circuit, and protected quantum integration"),
+    ("La distanza è la total variation distance fra frequenze osservate e probabilità teoriche: valori più vicini a zero indicano maggiore accordo.", "The distance is the total variation distance between observed frequencies and theoretical probabilities: values closer to zero indicate better agreement."),
+    ("È un limite di sicurezza dell'app, non aumenta la RAM fisicamente disponibile sul server.", "This is an app safety limit; it does not increase the RAM physically available on the server."),
+    ("La modalità automatica usa tutte le feature quando possibile; altrimenti applica una PCA appresa solo sul training set, così restano eseguibili c-PGM, k-PGM, r-PGM e il circuito.", "Automatic mode uses all features whenever possible; otherwise it applies PCA fitted only on the training set so c-PGM, k-PGM, r-PGM, and the circuit remain executable."),
+    ("I prior uniformi seguono l'Eq. (4). Per classi sbilanciate il k-PGM usa il Gram pesato, così resta esattamente equivalente ai due metodi primali.", "Uniform priors follow Eq. (4). For imbalanced classes, k-PGM uses the weighted Gram matrix and remains exactly equivalent to the two primal methods."),
+    ("Gli autovalori <= soglia x lambda_max sono esclusi in tutti e tre i metodi.", "Eigenvalues <= threshold × lambda_max are discarded in all three methods."),
+    ("Riduzione automatica necessaria:", "Automatic reduction required:"),
+    ("feature mediante PCA train-only. La percentuale di varianza conservata verrà mostrata dopo il calcolo.", "features using train-only PCA. The retained variance will be shown after computation."),
+    ("Nessuna riduzione necessaria: questa configurazione usa tutte le feature originali.", "No reduction is needed: this configuration uses all original features."),
+    ("Circuito quantistico previsto:", "Expected quantum circuit:"),
+    ("qubit di sistema +", "system qubits +"),
+    ("qubit di esito =", "outcome qubits ="),
+    ("qubit. La dilatazione unitaria esatta verrà costruita dopo il training.", "qubits. The exact unitary dilation will be built after training."),
+    ("qubit e matrice densa", "qubits and dense matrix"),
+    ("La matrice esatta supera il limite prudenziale di", "The exact matrix exceeds the conservative limit of"),
+    ("La classificazione classica resta disponibile; seleziona la modalità automatica quantum-ready soltanto se vuoi anche il circuito esatto, la validazione circuitale e l'esecuzione quantistica.", "Classical classification remains available. Select automatic quantum-ready mode only if you also need the exact circuit, circuit validation, and quantum execution."),
+    ("Le formule e la memoria asintotica seguono le Tabelle 1, 2 e 5 del paper.", "The formulas and asymptotic memory follow Tables 1, 2, and 5 of the paper."),
+    ("I proxy sono conteggi dei termini dominanti, non FLOP misurati.", "The proxies count dominant terms; they are not measured FLOPs."),
+    ("Prima del run, per k-PGM si usa il limite superiore r_G=N; dopo il run compare il rank effettivo.", "Before execution, k-PGM uses the upper bound r_G=N; after execution, the effective rank is shown."),
+    ("Le dimensioni mostrate usano il numero di feature codificate indicato sopra.", "The displayed dimensions use the encoded feature count shown above."),
+    ("Configurazione eseguibile con il limite prudenziale dell'app.", "Configuration executable within the app's conservative limit."),
+    ("Picco NumPy stimato:", "Estimated NumPy peak:"),
+    ("Le rappresentazioni primali complete sono troppo grandi da materializzare, ma la classificazione è disponibile in modalità scalabile con tutte le feature originali.", "The full primal representations are too large to materialize, but classification remains available in scalable mode with all original features."),
+    ("Il k-PGM viene calcolato direttamente; c-PGM e r-PGM vengono eseguiti anche in forma esplicita quando la loro dimensione è <=", "k-PGM is computed directly; c-PGM and r-PGM are also run explicitly when their dimension is <="),
+    (", altrimenti sono valutati tramite lo stesso kernel esatto ⟨x,z⟩^c.", "; otherwise they are evaluated through the same exact kernel ⟨x,z⟩^c."),
+    ("L'interfaccia distinguerà chiaramente i metodi materializzati da quelli equivalenti via kernel.", "The interface clearly distinguishes materialized methods from kernel-equivalent ones."),
+    ("Anche il calcolo kernel supera il limite prudenziale selezionato:", "The kernel computation also exceeds the selected conservative limit:"),
+    ("Usa la modalità automatica quantum-ready oppure aumenta il budget solo se il computer dispone realmente di quella RAM.", "Use automatic quantum-ready mode, or increase the budget only if the computer actually has that amount of RAM."),
+    ("La tabella di complessità rimane comunque valida.", "The complexity table remains valid."),
+    ("Download/cache del dataset e calcolo dei tre PGM in corso...", "Downloading/caching the dataset and computing the three PGMs..."),
+    ("Classificazione completata con tutte le feature originali: le tre formulazioni restituiscono le stesse predizioni sui", "Classification completed with all original features: the three formulations return identical predictions for all"),
+    ("campioni di test.", "test samples."),
+    ("Una formulazione calcolata esplicitamente non coincide con il risultato kernel su tutti i campioni.", "An explicitly evaluated formulation does not match the kernel result on every sample."),
+    ("Il caso può essere numericamente quasi degenere: consulta la diagnostica.", "The case may be numerically near-degenerate; review the diagnostics."),
+    ("Calcolo scalabile attivo.", "Scalable computation is active."),
+    ("sono stati calcolati direttamente e indipendentemente;", "were computed directly and independently;"),
+    ("sono stati valutati mediante l'identità esatta delle Gram matrix con k-PGM, senza costruire le rispettive matrici primali.", "were evaluated using the exact Gram-matrix identity with k-PGM, without building their primal matrices."),
+    ("Gli zeri negli scarti che coinvolgono questi metodi derivano quindi dall'equivalenza usata, non da tre esecuzioni indipendenti.", "Zero discrepancies involving these methods therefore follow from the equivalence used, not from three independent executions."),
+    ("Verifica superata: le predizioni dei tre metodi sono identiche su tutti i", "Check passed: all three methods give identical predictions for all"),
+    ("Scarto massimo tra score:", "Maximum score difference:"),
+    ("Le predizioni non coincidono tutte.", "The predictions do not all match."),
+    ("Controlla la soglia spettrale e gli scarti tra score: il caso può essere numericamente quasi degenere.", "Check the spectral threshold and score discrepancies; the case may be numerically near-degenerate."),
+    ("Dataset caricato da:", "Dataset loaded from:"),
+    ("Preprocessing: imputazione mediana,", "Preprocessing: median imputation,"),
+    (", min-max [0.001, 1] e normalizzazione L2; ogni trasformazione dipendente dai dati è appresa solo sul training set.", ", min-max [0.001, 1], and L2 normalization; every data-dependent transformation is fitted only on the training set."),
+    ("#### Classificazione test (calcolo classico scalabile)", "#### Test classification (scalable classical computation)"),
+    ("Questa valutazione non richiede la costruzione del circuito.", "This evaluation does not require constructing the circuit."),
+    ("Ogni riga confronta la classe reale con la predizione comune a c-PGM, k-PGM e r-PGM.", "Each row compares the actual class with the prediction shared by c-PGM, k-PGM, and r-PGM."),
+    ("**Matrice di confusione — campioni**", "**Confusion matrix — samples**"),
+    ("**Matrice di confusione — % per classe reale**", "**Confusion matrix — % by actual class**"),
+    ("#### Complessità con i valori effettivi del run", "#### Complexity with actual run values"),
+    ("I tempi osservati dipendono da BLAS, CPU, cache e carico della macchina;", "Observed times depend on BLAS, CPU, cache, and machine load;"),
+    ("le classi di complessità descrivono invece la crescita asintotica del paper.", "complexity classes instead describe the asymptotic growth analyzed in the paper."),
+    ("L'implementazione usa decomposizioni a rank ridotto e non materializza le N matrici densità,", "The implementation uses reduced-rank decompositions and does not materialize the N density matrices,"),
+    ("quindi la colonna 'Stato modello' non coincide con il bound di memoria della costruzione didattica del paper.", "so the ‘Model state’ column does not equal the memory bound of the paper's pedagogical construction."),
+    ("Classe:", "Class:"),
+    ("Esito non usato (probabilità teorica zero)", "Unused outcome (zero theoretical probability)"),
+    ("Costruzione della POVM e della dilatazione unitaria esatta...", "Building the POVM and exact unitary dilation..."),
+    ("Circuito esatto costruito: la matrice U_PGM contiene i parametri appresi nel training, non è un blocco puramente illustrativo.", "Exact circuit built: the U_PGM matrix contains the parameters learned during training; it is not merely an illustrative block."),
+    ("Circuito logico esatto: ingresso codificato su sys, ancilla |0...0> su out, dilatazione di Naimark e misura dell'esito.", "Exact logical circuit: encoded input on sys, |0...0> ancilla on out, Naimark dilation, and outcome measurement."),
+    ("U_PGM è mostrato come un'unica porta unitaria per mantenere il diagramma logico leggibile.", "U_PGM is shown as a single unitary gate to keep the logical diagram readable."),
+    ("Sotto puoi sintetizzarlo nella base generica rz/sx/x/cx e vedere il circuito completo su più righe.", "Below, you can synthesize it in the generic rz/sx/x/cx basis and view the full circuit over multiple lines."),
+    ("Il limite CNOT è una stima prudenziale pre-sintesi per un'unitaria arbitraria.", "The CNOT bound is a conservative pre-synthesis estimate for an arbitrary unitary."),
+    ("I conteggi esatti compaiono dopo la transpilation.", "Exact counts appear after transpilation."),
+    ("Sintesi in un processo protetto: l'interfaccia non può più essere chiusa da un crash nativo...", "Synthesis in an isolated process: a native crash can no longer terminate the interface..."),
+    ("Decomposizione completata senza coinvolgere il processo Streamlit.", "Decomposition completed outside the Streamlit process."),
+    ("**Conteggio esatto delle porte**", "**Exact gate counts**"),
+    ("**Circuito completo** — scorri verticalmente e orizzontalmente; nessuna porta è omessa.", "**Full circuit** — scroll vertically and horizontally; no gate is omitted."),
+    ("La sintesi è riuscita e i conteggi sopra sono esatti, ma il circuito supera", "Synthesis succeeded and the counts above are exact, but the circuit exceeds"),
+    ("porte: il disegno integrale sarebbe poco utilizzabile.", "gates, so a full drawing would not be practical."),
+    ("Il crash è rimasto confinato nel processo di sintesi: Streamlit e tutti i risultati del training restano attivi.", "The crash was confined to the synthesis process: Streamlit and all training results remain active."),
+    ("#### Ottimizzazione certificata", "#### Certified optimization"),
+    ("L'ottimizzazione sintetizza direttamente l'isometria di Naimark, confronta tre strategie e conserva quella con meno porte entangling.", "Optimization directly synthesizes the Naimark isometry, compares three strategies, and retains the one with the fewest entangling gates."),
+    ("Il risultato viene accettato soltanto se l'azione coincide con U_PGM su ogni ingresso valido, non soltanto sui campioni del test set.", "A result is accepted only if its action matches U_PGM for every valid input, not only for test-set samples."),
+    ("Fuori dal sottospazio con il registro out inizializzato a zero le due estensioni unitarie possono differire: quella parte non è mai utilizzata dalla PGM.", "Outside the subspace where the out register is initialized to zero, the two unitary extensions may differ; that part is never used by the PGM."),
+    ("Ottimizza e certifica equivalenza", "Optimize and certify equivalence"),
+    ("Sintesi originale, ricerca del circuito più corto e certificazione numerica in processi isolati...", "Original synthesis, shortest-circuit search, and numerical certification in isolated processes..."),
+    ("Non è stato possibile sintetizzare il circuito originale di riferimento.", "The original reference circuit could not be synthesized."),
+    ("Nessuna ottimizzazione è stata dichiarata equivalente.", "No optimization was declared equivalent."),
+    ("Nessuno dei tentativi ha superato la certificazione.", "None of the attempts passed certification."),
+    ("Il circuito originale resta invariato e utilizzabile.", "The original circuit remains unchanged and usable."),
+    ("Equivalenza certificata sull'intero sottospazio PGM.", "Equivalence certified over the full PGM subspace."),
+    ("Classi, probabilità teoriche e accuratezza restano invariate entro la tolleranza indicata.", "Classes, theoretical probabilities, and accuracy remain unchanged within the stated tolerance."),
+    ("Migliore sintesi: livello", "Best synthesis: level"),
+    ("Criterio: minimo numero di porte entangling, poi profondità e porte totali.", "Criterion: fewest entangling gates, then depth, then total gates."),
+    ("Il circuito supera la soglia grafica; i conteggi e la certificazione restano completi.", "The circuit exceeds the drawing threshold; counts and certification remain complete."),
+    ("La sintesi completa non viene avviata automaticamente oltre", "Full synthesis is not started automatically above"),
+    ("qubit: il limite prudenziale è circa", "qubits: the conservative bound is approximately"),
+    ("CNOT, oltre alle rotazioni a un qubit.", "CNOTs, in addition to single-qubit rotations."),
+    ("La transpilation per uno specifico backend fornirà i conteggi effettivi solo se il circuito supera il preflight.", "Transpilation for a specific backend will provide actual counts only if the circuit passes preflight."),
+    ("##### Corrispondenza qubit misurati → classe", "##### Measured qubits → class mapping"),
+    ("→ classe", "→ class"),
+    ("La bitstring è il valore misurato nel registro di uscita `out`:", "The bitstring is the value measured in the `out` register:"),
+    ("per esempio `000` identifica la prima classe elencata.", "for example, `000` identifies the first listed class."),
+    ("Gli eventuali stati binari eccedenti non sono assegnati e hanno probabilità teorica zero.", "Any additional binary states are unassigned and have zero theoretical probability."),
+    ("##### Matrice di confusione", "##### Confusion matrix"),
+    ("Le righe sono le classi reali e le colonne le classi predette.", "Rows are actual classes and columns are predicted classes."),
+    ("La diagonale contiene le classificazioni corrette.", "The diagonal contains correct classifications."),
+    ("**Numero di campioni**", "**Number of samples**"),
+    ("**Percentuale per classe reale**", "**Percentage by actual class**"),
+    ("##### Risultato di ogni campione", "##### Result for each sample"),
+    ("Ogni riga confronta l'etichetta reale con quella scelta dal circuito.", "Each row compares the actual label with the label selected by the circuit."),
+    ("La **confidenza** è la probabilità della classe predetta;", "**Confidence** is the probability of the predicted class;"),
+    ("il **margine 1ª-2ª** è il distacco dalla seconda classe più probabile.", "the **1st–2nd margin** is the gap from the second most likely class."),
+    ("La colonna **Lettura rapida** riassume il risultato in una frase.", "The **Quick reading** column summarizes the result in one sentence."),
+    ("Lo scostamento circuito-teoria è un controllo numerico:", "The circuit-theory deviation is a numerical check:"),
+    ("dovrebbe restare vicino alla precisione macchina e non misura la qualità statistica della classificazione.", "it should remain near machine precision and does not measure the statistical quality of classification."),
+    ("**Mappa bitstring → classe**", "**Bitstring → class map**"),
+    ("##### Circuito numerico rispetto alla teoria", "##### Numerical circuit versus theory"),
+    ("Per ogni campione e classe confronto la probabilità ottenuta applicando la matrice unitaria del circuito con il valore teorico", "For every sample and class, the probability obtained by applying the circuit unitary is compared with the theoretical value"),
+    ("Uno scostamento vicino alla precisione macchina indica che la dilatazione implementa correttamente la POVM.", "A deviation near machine precision indicates that the dilation correctly implements the POVM."),
+    ("Somma degli effetti F_j = I", "Sum of effects F_j = I"),
+    ("Probabilità Born ricostruite", "Reconstructed Born probabilities"),
+    ("Somma probabilità sul test set = 1", "Test-set probability sum = 1"),
+    ("Verifica superata: le predizioni del circuito coincidono con r-PGM sul 100% del test set.", "Check passed: circuit predictions match r-PGM on 100% of the test set."),
+    ("Accordo circuito/r-PGM:", "Circuit/r-PGM agreement:"),
+    ("Controllare i casi di pareggio numerico.", "Check numerical tie cases."),
+    ("La dilatazione unitaria non è unica: completamenti unitari diversi producono le stesse probabilità sui dati in ingresso con out=0.", "The unitary dilation is not unique: different unitary completions produce the same probabilities for inputs with out=0."),
+    ("##### Esegui la PGM su simulatore o hardware reale", "##### Run the PGM on a simulator or real hardware"),
+    ("Il circuito eseguibile include la preparazione dello stato del campione selezionato.", "The executable circuit includes state preparation for the selected sample."),
+    ("Per le esecuzioni circuitali, l'app prova automaticamente i livelli di ottimizzazione 1, 2 e 3 e usa soltanto il miglior circuito che supera la certificazione.", "For circuit executions, the app automatically tries optimization levels 1, 2, and 3 and uses only the best circuit that passes certification."),
+    ("Puoi configurare shot, seed, modello di rumore e provider.", "You can configure shots, seed, noise model, and provider."),
+    ("Le credenziali non entrano negli export o nella cache dell'app; possono essere lette da variabili d'ambiente o dal file locale Streamlit Secrets.", "Credentials are never included in exports or the app cache; they can be read from environment variables or the local Streamlit Secrets file."),
+    ("richiede Python", "requires Python"),
+    ("sono consigliati con Python", "are recommended with Python"),
+    ("reale=", "actual="),
+    ("predizione ideale=", "ideal prediction="),
+    ("Esecuzioni circuitali: ottimizzazione automatica certificata, minimizzando gate entangling, poi profondità e porte totali.", "Circuit executions use certified automatic optimization, minimizing entangling gates first, then depth and total gates."),
+    ("Modalità più veloce: campiona direttamente dalla distribuzione teorica della PGM, senza simulare ogni porta del circuito.", "Fastest mode: sample directly from the theoretical PGM distribution without simulating every circuit gate."),
+    ("Qiskit Aer esegue il circuito completo.", "Qiskit Aer runs the full circuit."),
+    ("Puoi scegliere il metodo numerico e aggiungere un semplice rumore depolarizzante.", "You can choose the numerical method and add a simple depolarizing noise model."),
+    ("Qiskit Aer non è installato.", "Qiskit Aer is not installed."),
+    ("Usa `Installa_Provider_Quantistici.command` e scegli Qiskit Aer, oppure installa `requirements-simulators.txt`.", "Use `Installa_Provider_Quantistici.command` and select Qiskit Aer, or install `requirements-simulators.txt`."),
+    ("Ottimizzazione Aer disabilitata: il circuito supera", "Aer optimization disabled: the circuit exceeds"),
+    ("Provo i livelli 1, 2 e 3, certifico l'equivalenza e simulo il migliore...", "Trying levels 1, 2, and 3, certifying equivalence, and simulating the best candidate..."),
+    ("Simulazione Aer non riuscita:", "Aer simulation failed:"),
+    ("Nessun candidato Aer ha superato la certificazione: la simulazione non è stata eseguita.", "No Aer candidate passed certification; simulation was not run."),
+    ("Aer ha eseguito il migliore circuito certificato:", "Aer ran the best certified circuit:"),
+    ("gate entangling, profondità", "entangling gates, depth"),
+    ("###### Connessione sicura ad Amazon Braket", "###### Secure connection to Amazon Braket"),
+    ("AWS non usa un singolo token Braket.", "AWS does not use a single Braket token."),
+    ("Online puoi usare credenziali temporanee della tua sessione AWS; in locale puoi anche selezionare un profilo SSO già configurato.", "Online, you can use temporary AWS session credentials; locally, you can also select an existing SSO profile."),
+    ("Le credenziali non vengono salvate dall'app né inserite nei file.", "Credentials are neither stored by the app nor written to files."),
+    ("o successivo.", "or later."),
+    ("Componenti AWS non installati.", "AWS components are not installed."),
+    ("Usa `Installa_Provider_Quantistici.command` oppure segui `INSTALLAZIONE_PROVIDER_MAC.md`.", "Use `Installa_Provider_Quantistici.command` or follow `INSTALLAZIONE_PROVIDER_MAC.md`."),
+    ("Credenziali AWS protette disponibili sul server.", "Protected AWS credentials are available on the server."),
+    ("AWS Session Token (facoltativo; necessario per credenziali temporanee STS)", "AWS Session Token (optional; required for temporary STS credentials)"),
+    ("Preferisci credenziali STS temporanee e con permessi limitati ad Amazon Braket.", "Prefer temporary STS credentials with permissions limited to Amazon Braket."),
+    ("Non usare credenziali root.", "Do not use root credentials."),
+    ("Connessione AWS e lettura dei dispositivi...", "Connecting to AWS and reading devices..."),
+    ("Connessione AWS non riuscita:", "AWS connection failed:"),
+    ("Connessione verificata · account", "Connection verified · account"),
+    ("Nessun dispositivo compatibile trovato per queste credenziali e questa selezione.", "No compatible device was found for these credentials and this selection."),
+    ("###### Connessione a LRZ Quantum tramite MQSS", "###### Connect to LRZ Quantum through MQSS"),
+    ("L'app interroga prima le risorse online e ignora in modo sicuro i metadati mancanti dei target offline.", "The app queries online resources first and safely ignores missing target metadata for offline resources."),
+    ("In questo modo un backend non disponibile, come MUNIQC-Atoms20, non impedisce di mostrare una risorsa operativa come EQE1.", "This prevents an unavailable backend such as MUNIQC-Atoms20 from hiding an operational resource such as EQE1."),
+    ("Adapter LRZ non installato.", "The LRZ adapter is not installed."),
+    ("Per il riempimento automatico usa la variabile LRZ_MQSS_TOKEN o .streamlit/secrets.toml.", "For automatic filling, use the LRZ_MQSS_TOKEN variable or .streamlit/secrets.toml."),
+    ("Lettura delle risorse autorizzate...", "Reading authorized resources..."),
+    ("Connessione LRZ non riuscita:", "LRZ connection failed:"),
+    ("Il token è valido ma non restituisce risorse compatibili con il filtro selezionato.", "The token is valid but returns no resources matching the selected filter."),
+    ("Trovate", "Found"),
+    ("risorse autorizzate.", "authorized resources."),
+    ("LRZ Qaptiva usa un flusso VPN/SSH/HPC separato e non è presentato come falso backend MQSS.", "LRZ Qaptiva uses a separate VPN/SSH/HPC workflow and is not presented as an MQSS backend."),
+    ("###### Connessione a IonQ Quantum Cloud", "###### Connect to IonQ Quantum Cloud"),
+    ("IonQ usa una API key.", "IonQ uses an API key."),
+    ("Il provider espone sia il simulatore cloud, con modelli di rumore opzionali, sia le QPU disponibili per il tuo account.", "The provider exposes both the cloud simulator, with optional noise models, and the QPUs available to your account."),
+    ("è consigliato con Python", "is recommended with Python"),
+    ("Provider IonQ non installato.", "The IonQ provider is not installed."),
+    ("Il simulatore ideale IonQ restituisce probabilità.", "The ideal IonQ simulator returns probabilities."),
+    ("L'app le converte nel numero di shot virtuali scelto sopra, senza alterare la distribuzione restituita.", "The app converts them to the number of virtual shots selected above without altering the returned distribution."),
+    ("Lettura dei backend IonQ...", "Reading IonQ backends..."),
+    ("Connessione IonQ non riuscita:", "IonQ connection failed:"),
+    ("Nessun backend IonQ compatibile è stato restituito.", "No compatible IonQ backend was returned."),
+    ("###### Connessione a IBM Quantum", "###### Connect to IBM Quantum"),
+    ("Puoi incollare token e CRN dell'istanza oppure lasciare il token vuoto se hai già salvato localmente un account IBM Quantum.", "You can enter the token and instance CRN, or leave the token empty if an IBM Quantum account is already saved locally."),
+    ("L'elenco mostra soltanto QPU operative con qubit sufficienti.", "The list shows only operational QPUs with enough qubits."),
+    ("Provider IBM non installato.", "The IBM provider is not installed."),
+    ("Lettura delle QPU IBM operative...", "Reading operational IBM QPUs..."),
+    ("Connessione IBM non riuscita:", "IBM connection failed:"),
+    ("Nessuna QPU IBM operativa con abbastanza qubit è disponibile per questo account.", "No operational IBM QPU with enough qubits is available for this account."),
+    ("###### Preflight del circuito eseguibile", "###### Executable-circuit preflight"),
+    ("Il circuito richiede", "The circuit requires"),
+    ("qubit, ma la risorsa dichiara", "qubits, but the resource reports"),
+    ("La risorsa dichiara un massimo di", "The resource reports a maximum of"),
+    ("shot; riduci il valore.", "shots; reduce the value."),
+    ("Alcune risorse LRZ, in particolare AQT, documentano limiti di shot più bassi.", "Some LRZ resources, especially AQT, document lower shot limits."),
+    ("Il limite effettivo dipende dal backend.", "The actual limit depends on the backend."),
+    ("Il preflight aggiunge la preparazione dello stato test, prova automaticamente i livelli 1, 2 e 3 in processi isolati e sceglie il migliore tra quelli equivalenti a U_PGM.", "Preflight adds test-state preparation, automatically tries levels 1, 2, and 3 in isolated processes, and selects the best candidate equivalent to U_PGM."),
+    ("Il provider eseguirà poi la necessaria conversione nella base nativa del dispositivo.", "The provider will then perform the required conversion to the device's native basis."),
+    ("Esecuzione esterna disabilitata: questo circuito supera", "External execution disabled: this circuit exceeds"),
+    ("qubit e la sintesi sicura non è praticabile sul computer locale.", "qubits and safe synthesis is not practical on the local computer."),
+    ("Provo i livelli 1, 2 e 3 sul circuito completo e certifico ogni candidato...", "Trying levels 1, 2, and 3 on the full circuit and certifying each candidate..."),
+    ("Preflight non riuscito:", "Preflight failed:"),
+    ("Nessuno dei tre candidati ha superato la certificazione.", "None of the three candidates passed certification."),
+    ("Il job non può essere inviato.", "The job cannot be submitted."),
+    ("Criterio di scelta: gate entangling, profondità, poi porte totali.", "Selection criterion: entangling gates, depth, then total gates."),
+    ("Circuito su", "Circuit on"),
+    ("I conteggi sono nella base generica rz/sx/x/cx; la compilazione nativa del provider può modificarli.", "Counts are in the generic rz/sx/x/cx basis; the provider's native compilation may change them."),
+    ("Migliore preflight certificato equivalente a U_PGM:", "Best preflight certified equivalent to U_PGM:"),
+    ("errore massimo", "maximum error"),
+    ("Il preflight non ha superato la certificazione di equivalenza: l'invio è disabilitato.", "Preflight did not pass equivalence certification; submission is disabled."),
+    ("Circuito troppo grande per il disegno integrale; il conteggio delle porte resta esatto.", "The circuit is too large for a full drawing; gate counts remain exact."),
+    ("Il circuito supera 2.000 porte, limite noto per alcune risorse LRZ; altri backend possono avere limiti differenti.", "The circuit exceeds 2,000 gates, a known limit for some LRZ resources; other backends may have different limits."),
+    ("Confermo di voler inviare", "I confirm that I want to submit"),
+    ("il job alla risorsa LRZ selezionata", "the job to the selected LRZ resource"),
+    ("il job alla QPU IonQ selezionata", "the job to the selected IonQ QPU"),
+    ("il job alla QPU IBM selezionata", "the job to the selected IBM QPU"),
+    ("usando la mia allocazione.", "using my allocation."),
+    ("un task AWS che può usare quota o generare costi.", "an AWS task that may consume quota or incur charges."),
+    ("un task AWS che può generare costi sul mio account.", "an AWS task that may incur charges on my account."),
+    ("un job IonQ che può usare quota o generare costi.", "an IonQ job that may consume quota or incur charges."),
+    ("selezionata e di accettarne quota o costi.", "selected and accept the associated quota usage or costs."),
+    ("selezionata usando la mia istanza.", "selected using my instance."),
+    ("Prima dell'invio verifica quota, piano e prezzi nel portale del provider: l'app non usa costi hard-coded.", "Before submission, check quota, plan, and pricing in the provider portal; the app does not use hard-coded costs."),
+    ("Invio del job; il risultato verrà letto solo su richiesta...", "Submitting the job; the result will be retrieved only on request..."),
+    ("Reinserire il token LRZ.", "Re-enter the LRZ token."),
+    ("Reinserire la API key IonQ.", "Re-enter the IonQ API key."),
+    ("Credenziali o regione AWS mancanti.", "AWS credentials or region are missing."),
+    ("Job inviato. ID:", "Job submitted. ID:"),
+    ("Invio non riuscito:", "Submission failed:"),
+    ("###### Job remoto", "###### Remote job"),
+    ("Stato non disponibile:", "Status unavailable:"),
+    ("Risultato non disponibile:", "Result unavailable:"),
+    ("Annullamento non riuscito:", "Cancellation failed:"),
+    ("QPY conserva il circuito Qiskit; NPZ contiene U_PGM, gli effetti F_j, l'ordine delle classi e i metadati della codifica.", "QPY preserves the Qiskit circuit; NPZ contains U_PGM, the F_j effects, class order, and encoding metadata."),
+    ("Per questa configurazione la dilatazione avrebbe una matrice densa", "For this configuration, the dilation would require a dense matrix"),
+    ("Per proteggere la memoria, l'app mostra l'architettura dimensionata ma non materializza U_PGM.", "To protect memory, the app shows the dimensioned architecture but does not materialize U_PGM."),
+    ("I risultati classici, la matrice di confusione e il dettaglio dei campioni restano disponibili sopra.", "Classical results, the confusion matrix, and sample details remain available above."),
+    ("Seleziona **Automatica quantum-ready** per ottenere il circuito esatto esportabile e l'esecuzione quantistica; in alternativa riduci il numero di copie.", "Select **Automatic quantum-ready** to obtain the exportable exact circuit and quantum execution; alternatively, reduce the number of copies."),
+    ("Schema logico dimensionato; U_PGM_symbolic indica la matrice non materializzata per questa configurazione.", "Dimensioned logical diagram; U_PGM_symbolic denotes the matrix not materialized for this configuration."),
+    ("**Corrispondenza tra esiti e classi**", "**Outcome-to-class mapping**"),
+    ("Manca una dipendenza necessaria per disegnare il circuito.", "A dependency required to draw the circuit is missing."),
+    ("Ferma l'app con Control+C, esegui", "Stop the app with Control+C, run"),
+    ("nella cartella del progetto e riavviala.", "in the project folder, and restart it."),
+    ("Dettaglio:", "Details:"),
+    ("Le impostazioni sono cambiate: premi il pulsante per calcolare il nuovo caso.", "Settings have changed; press the button to compute the new case."),
+    ("Nota: r-PGM è il nome breve usato qui per il reduced c-PGM (Rc-PGM) del paper.", "Note: r-PGM is the short name used here for the paper's reduced c-PGM (Rc-PGM)."),
+    ("Per c=1 la mappa ridotta coincide con la mappa originale.", "For c=1, the reduced map equals the original map."),
+    ("Reale:", "Actual:"),
+    ("Predetta:", "Predicted:"),
+    ("Test #", "Test #"),
+    ("decisione netta", "clear decision"),
+    ("decisione moderata", "moderately clear decision"),
+    ("classi molto vicine: interpretare con cautela", "very close classes: interpret with caution"),
+    ("Corretta: la misura favorisce la classe", "Correct: the measurement favors class"),
+    ("Errata: la misura favorisce la classe", "Incorrect: the measurement favors class"),
+    ("con probabilità", "with probability"),
+    ("il distacco dalla seconda classe è", "the margin over the second-ranked class is"),
+    ("P teorica", "Theoretical P"),
+    ("P circuito", "Circuit P"),
+    ("unitaria esatta appresa dal training", "exact unitary learned during training"),
+    ("schema simbolico: matrice non materializzata", "symbolic diagram: matrix not materialized"),
+    ("Circuito quantistico PGM mediante dilatazione di Naimark", "PGM quantum circuit using a Naimark dilation"),
+    ("Circuito logico della PGM", "PGM logical circuit"),
+    ("Dilatazione di Naimark", "Naimark dilation"),
+    ("Registro sys:", "sys register:"),
+    ("Registro out:", "out register:"),
+    ("Totale:", "Total:"),
+    ("Ingresso: stato test codificato", "Input: encoded test state"),
+    ("Uscita: bitstring di classe", "Output: class bitstring"),
+    ("SIMULATORE", "SIMULATOR"),
+    ("QPU SUPERCONDUTTIVA", "SUPERCONDUCTING QPU"),
+    ("QPU IONI INTRAPPOLATI", "TRAPPED-ION QPU"),
+    ("Attesa media dichiarata:", "Reported average wait:"),
+    ("Prestazioni dichiarate come degradate", "Reported degraded performance"),
+    ("Metadati target non disponibili:", "Target metadata unavailable:"),
+    ("ID non disponibile", "ID unavailable"),
+    ("job in coda", "queued jobs"),
+    ("qubit n/d", "qubits n/a"),
+    ("La dimensione deve essere positiva.", "The dimension must be positive."),
+    ("I limiti automatici devono essere positivi.", "Automatic limits must be positive."),
+    ("Nessuna dimensione di codifica soddisfa contemporaneamente i limiti classici e quantistici selezionati.", "No encoding dimension satisfies all selected classical and quantum limits."),
+    ("la RAM di picco stimata per l'implementazione supera il budget selezionato", "the implementation's estimated peak RAM exceeds the selected budget"),
+    ("una diagonalizzazione densa avrebbe dimensione", "a dense eigendecomposition would have dimension"),
+    (", oltre il limite prudenziale", ", above the conservative limit"),
+    ("Il catalogo contiene chiavi dataset duplicate.", "The catalogue contains duplicate dataset keys."),
+    ("Metadati non validi per il dataset", "Invalid metadata for dataset"),
+    ("Nessun loader configurato per il dataset", "No loader is configured for dataset"),
+    ("Sottoinsieme non valido per", "Invalid subset for"),
+    ("Seed del sottoinsieme mancante per", "Missing subset seed for"),
+    ("Dataset sconosciuto:", "Unknown dataset:"),
+    ("3 centri", "3 centers"),
+    ("generatore XOR locale", "local XOR generator"),
+    ("generatore Three Spirals locale", "local Three Spirals generator"),
+    ("rumore gaussiano", "Gaussian noise"),
+    ("sottoinsieme stratificato fisso", "fixed stratified subset"),
+    ("Nessun fallback locale disponibile.", "No local fallback is available."),
+    ("La copia locale non coincide con i metadati del catalogo.", "The local copy does not match the catalogue metadata."),
+    ("Il dataset ha piu di una variabile target.", "The dataset has more than one target variable."),
+    ("Download OpenML non riuscito. Controllare la connessione e riprovare.", "OpenML download failed. Check the connection and try again."),
+    ("Dettaglio originale:", "Original details:"),
+    ("Metadati inattesi: attesi", "Unexpected metadata: expected"),
+    ("Metadati inattesi: attese", "Unexpected metadata: expected"),
+    ("ricevuti", "received"),
+    ("ricevute", "received"),
+    ("Seed del sottoinsieme mancante.", "The subset seed is missing."),
+    ("Il dataset elaborato non coincide con i metadati del catalogo.", "The processed dataset does not match the catalogue metadata."),
+    ("Per l'esecuzione hardware serve la dilatazione esatta.", "Hardware execution requires the exact dilation."),
+    ("Lo stato test non ha la dimensione ridotta attesa.", "The test state does not have the expected reduced dimension."),
+    ("Lo stato test deve avere norma unitaria.", "The test state must have unit norm."),
+    ("Il file QPY deve contenere esattamente un circuito.", "The QPY file must contain exactly one circuit."),
+    ("Il numero di shot deve essere positivo.", "The number of shots must be positive."),
+    ("errore a un qubit", "one-qubit error"),
+    ("errore a due qubit", "two-qubit error"),
+    ("errore di lettura", "readout error"),
+    ("La probabilità di", "The probability of"),
+    ("deve essere in [0, 1).", "must be in [0, 1)."),
+    ("Il risultato non contiene conteggi utilizzabili.", "The result contains no usable counts."),
+    ("Tutti gli shot sono finiti in esiti binari non assegnati.", "All shots ended in unassigned binary outcomes."),
+    ("Il provider ha restituito un risultato vuoto.", "The provider returned an empty result."),
+    ("Questa versione del provider Braket non accetta una sessione AWS isolata.", "This version of the Braket provider does not accept an isolated AWS session."),
+    ("Aggiornare qiskit-braket-provider.", "Update qiskit-braket-provider."),
+    ("Nessun profilo o credenziale AWS disponibile.", "No AWS profile or credentials are available."),
+    ("Backend Amazon Braket non trovato:", "Amazon Braket backend not found:"),
+    ("Il job contiene più di un circuito.", "The job contains more than one circuit."),
+    ("Il provider non ha restituito conteggi riconoscibili.", "The provider returned no recognizable counts."),
+    ("Le matrici da confrontare devono avere la stessa forma.", "The matrices being compared must have the same shape."),
+    ("Dimensione del sottospazio di ingresso non valida.", "Invalid input-subspace dimension."),
+    ("X_train e y_train non sono compatibili.", "X_train and y_train are incompatible."),
+    ("I vettori di training devono avere norma unitaria.", "Training vectors must have unit norm."),
+    ("I vettori di training devono avere norma L2 unitaria.", "Training vectors must have unit L2 norm."),
+    ("La tolleranza spettrale deve essere tra 0 e 1.", "The spectral tolerance must be between 0 and 1."),
+    ("La PGM non ha supporto numerico alla soglia scelta.", "The PGM has no numerical support at the selected threshold."),
+    ("Effetto non positivo: autovalore minimo", "Non-positive effect: minimum eigenvalue"),
+    ("L'isometria di Naimark ha perso rango numerico.", "The Naimark isometry lost numerical rank."),
+    ("La matrice unitaria non è stata materializzata.", "The unitary matrix was not materialized."),
+    ("Lo stato non ha la dimensione della feature map ridotta.", "The state does not have the reduced feature-map dimension."),
+    ("L'isometria esatta non è stata materializzata.", "The exact isometry was not materialized."),
+    ("Il numero di qubit deve essere positivo.", "The number of qubits must be positive."),
+    ("Fornire esattamente uno tra circuito QPY e matrice isometrica.", "Provide exactly one of a QPY circuit or an isometry matrix."),
+    ("Numero di qubit di sistema non valido.", "Invalid number of system qubits."),
+    ("Numero di qubit di uscita non valido.", "Invalid number of outcome qubits."),
+    ("La matrice isometrica non coincide con le dimensioni dei registri.", "The isometry matrix does not match the register dimensions."),
+    ("Il worker di transpilation non è presente nel progetto.", "The transpilation worker is missing from the project."),
+    ("Lo stato di ingresso supera il registro di sistema.", "The input state exceeds the system register."),
+    ("La dimensione del sottospazio è necessaria per certificare l'equivalenza.", "The subspace dimension is required to certify equivalence."),
+    ("La sintesi ha superato il limite di", "Synthesis exceeded the time limit of"),
+    ("secondi ed è stata interrotta in sicurezza.", "seconds and was stopped safely."),
+    ("Il processo isolato di sintesi è terminato con", "The isolated synthesis process exited with"),
+    ("L'interfaccia principale è rimasta attiva.", "The main interface remained active."),
+    ("segnale", "signal"),
+    ("codice", "code"),
+    ("La decomposizione e i conteggi sono stati comunque recuperati; è fallita soltanto una fase successiva.", "The decomposition and counts were recovered; only a later stage failed."),
+    ("La sintesi è terminata senza produrre tutti i file attesi.", "Synthesis ended without producing all expected files."),
+    ("Sintesi completata nel processo isolato.", "Synthesis completed in the isolated process."),
+    ("La dilatazione esatta non è disponibile.", "The exact dilation is not available."),
+    ("test_fraction deve essere strettamente tra 0 e 1.", "test_fraction must be strictly between 0 and 1."),
+    ("max_encoded_features deve essere un intero o None.", "max_encoded_features must be an integer or None."),
+    ("max_encoded_features deve essere positivo.", "max_encoded_features must be positive."),
+    ("deve essere una matrice bidimensionale.", "must be a two-dimensional matrix."),
+    ("contiene valori NaN o infiniti.", "contains NaN or infinite values."),
+    ("Train e test devono avere lo stesso numero di feature.", "Training and test data must have the same number of features."),
+    ("Il numero di copie c deve essere un intero >= 1.", "The number of copies c must be an integer >= 1."),
+    ("I vettori di test devono avere norma L2 unitaria.", "Test vectors must have unit L2 norm."),
+    ("Classe non riconosciuta:", "Unknown class:"),
+    ("Modalita dei prior non supportata:", "Unsupported prior mode:"),
+    ("copies deve essere >= 1.", "copies must be >= 1."),
+    ("La tolleranza spettrale relativa deve essere tra 0 e 1.", "The relative spectral tolerance must be between 0 and 1."),
+    ("Nessun autovalore supera la soglia spettrale; controllare i dati.", "No eigenvalue exceeds the spectral threshold; check the data."),
+    ("explicit_dimension_limit deve essere un intero.", "explicit_dimension_limit must be an integer."),
+    ("explicit_dimension_limit deve essere positivo.", "explicit_dimension_limit must be positive."),
+)
+
+
+_ORDERED_PHRASES = tuple(
+    sorted(PHRASE_TRANSLATIONS, key=lambda item: len(item[0]), reverse=True)
+)
+
+
+# These short terms appear inside dynamic labels.  Word boundaries are required:
+# raw substring replacement of ``classi`` would corrupt ``classificazione``.
+WORD_TRANSLATIONS: tuple[tuple[str, str], ...] = (
+    ("classificazione", "classification"),
+    ("porte", "gates"),
+    ("campioni", "samples"),
+    ("classi", "classes"),
+    ("classe", "class"),
+    ("risorse", "resources"),
+    ("risorsa", "resource"),
+)
+
+
+def normalize_language(language: str | None) -> str:
+    return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+
+
+def _normalized_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def translate_text(value: Any, language: str | None) -> Any:
+    """Translate a user-visible string while leaving all non-strings untouched."""
+
+    if normalize_language(language) != "en" or not isinstance(value, str):
+        return value
+    if value in EXACT_TRANSLATIONS:
+        return EXACT_TRANSLATIONS[value]
+    normalized = _normalized_text(value)
+    if normalized in EXACT_TRANSLATIONS:
+        return EXACT_TRANSLATIONS[normalized]
+    if normalized in NORMALIZED_TRANSLATIONS:
+        return NORMALIZED_TRANSLATIONS[normalized]
+    translated = value
+    for source, target in _ORDERED_PHRASES:
+        translated = translated.replace(source, target)
+    for source, target in WORD_TRANSLATIONS:
+        translated = re.sub(
+            rf"(?<!\w){re.escape(source)}(?!\w)",
+            target,
+            translated,
+        )
+    translated = re.sub(r"(?<=\d) feature\b", " features", translated)
+    return translated
+
+
+def localize_dataframe(frame: pd.DataFrame, language: str | None) -> pd.DataFrame:
+    """Return a presentation copy with translated headers, index and text cells."""
+
+    if normalize_language(language) != "en":
+        return frame
+    localized = frame.copy()
+    localized = localized.rename(
+        columns=lambda value: translate_text(value, "en"),
+        index=lambda value: translate_text(value, "en"),
+    )
+    for column in localized.columns:
+        if pd.api.types.is_object_dtype(localized[column].dtype) or isinstance(
+            localized[column].dtype, pd.StringDtype
+        ):
+            localized[column] = localized[column].map(
+                lambda value: translate_text(value, "en")
+            )
+    return localized
+
+
+def localize_value(value: Any, language: str | None) -> Any:
+    if normalize_language(language) != "en":
+        return value
+    if isinstance(value, str):
+        return translate_text(value, "en")
+    if isinstance(value, pd.DataFrame):
+        return localize_dataframe(value, "en")
+    if isinstance(value, Mapping):
+        return {
+            localize_value(key, "en"): localize_value(item, "en")
+            for key, item in value.items()
+        }
+    if isinstance(value, tuple):
+        return tuple(localize_value(item, "en") for item in value)
+    if isinstance(value, list):
+        return [localize_value(item, "en") for item in value]
+    return value
+
+
+class _ColumnConfigProxy:
+    def __init__(self, owner: Any, language_getter: Callable[[], str]):
+        self._owner = owner
+        self._language_getter = language_getter
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._owner, name)
+        if not callable(attribute):
+            return attribute
+
+        def localized_factory(*args: Any, **kwargs: Any) -> Any:
+            language = self._language_getter()
+            localized_args = list(args)
+            if localized_args and isinstance(localized_args[0], str):
+                localized_args[0] = translate_text(localized_args[0], language)
+            for key in ("label", "help", "display_text"):
+                if key in kwargs and isinstance(kwargs[key], str):
+                    kwargs[key] = translate_text(kwargs[key], language)
+            return attribute(*localized_args, **kwargs)
+
+        return localized_factory
+
+
+class LocalizedStreamlit:
+    """Small transparent proxy that localizes Streamlit presentation methods."""
+
+    _TEXT_METHODS = {
+        "title",
+        "header",
+        "subheader",
+        "caption",
+        "markdown",
+        "text",
+        "info",
+        "success",
+        "warning",
+        "error",
+        "toast",
+    }
+    _WIDGET_METHODS = {
+        "button",
+        "download_button",
+        "link_button",
+        "checkbox",
+        "toggle",
+        "text_input",
+        "text_area",
+        "number_input",
+        "slider",
+        "file_uploader",
+        "camera_input",
+        "form_submit_button",
+    }
+    _CHOICE_METHODS = {
+        "selectbox",
+        "radio",
+        "select_slider",
+        "multiselect",
+        "segmented_control",
+        "pills",
+    }
+
+    def __init__(self, owner: Any, language_getter: Callable[[], str]):
+        self._owner = owner
+        self._language_getter = language_getter
+
+    def __enter__(self) -> "LocalizedStreamlit":
+        self._owner.__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> Any:
+        return self._owner.__exit__(exc_type, exc, traceback)
+
+    def _language(self) -> str:
+        return normalize_language(self._language_getter())
+
+    def _wrap(self, owner: Any) -> "LocalizedStreamlit":
+        return LocalizedStreamlit(owner, self._language_getter)
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "column_config":
+            return _ColumnConfigProxy(
+                getattr(self._owner, name), self._language_getter
+            )
+        attribute = getattr(self._owner, name)
+        if not callable(attribute):
+            if name == "sidebar":
+                return self._wrap(attribute)
+            return attribute
+
+        if name in self._TEXT_METHODS:
+            def localized_text(*args: Any, **kwargs: Any) -> Any:
+                localized_args = list(args)
+                if localized_args:
+                    localized_args[0] = translate_text(
+                        localized_args[0], self._language()
+                    )
+                return attribute(*localized_args, **kwargs)
+
+            return localized_text
+
+        if name == "write":
+            def localized_write(*args: Any, **kwargs: Any) -> Any:
+                return attribute(
+                    *(localize_value(value, self._language()) for value in args),
+                    **kwargs,
+                )
+
+            return localized_write
+
+        if name in {"dataframe", "table", "data_editor"}:
+            def localized_table(*args: Any, **kwargs: Any) -> Any:
+                localized_args = list(args)
+                if localized_args:
+                    localized_args[0] = localize_value(
+                        localized_args[0], self._language()
+                    )
+                if "column_config" in kwargs:
+                    kwargs["column_config"] = localize_value(
+                        kwargs["column_config"], self._language()
+                    )
+                return attribute(*localized_args, **kwargs)
+
+            return localized_table
+
+        if name == "metric":
+            def localized_metric(*args: Any, **kwargs: Any) -> Any:
+                localized_args = list(args)
+                for index in range(min(3, len(localized_args))):
+                    localized_args[index] = translate_text(
+                        localized_args[index], self._language()
+                    )
+                for key in ("label", "value", "delta", "help"):
+                    if key in kwargs:
+                        kwargs[key] = translate_text(kwargs[key], self._language())
+                return attribute(*localized_args, **kwargs)
+
+            return localized_metric
+
+        if name in self._WIDGET_METHODS:
+            def localized_widget(*args: Any, **kwargs: Any) -> Any:
+                localized_args = list(args)
+                if localized_args:
+                    localized_args[0] = translate_text(
+                        localized_args[0], self._language()
+                    )
+                for key in ("label", "help", "placeholder"):
+                    if key in kwargs:
+                        kwargs[key] = translate_text(kwargs[key], self._language())
+                return attribute(*localized_args, **kwargs)
+
+            return localized_widget
+
+        if name in self._CHOICE_METHODS:
+            def localized_choice(*args: Any, **kwargs: Any) -> Any:
+                localized_args = list(args)
+                if localized_args:
+                    localized_args[0] = translate_text(
+                        localized_args[0], self._language()
+                    )
+                elif "label" in kwargs:
+                    kwargs["label"] = translate_text(
+                        kwargs["label"], self._language()
+                    )
+                if "help" in kwargs:
+                    kwargs["help"] = translate_text(
+                        kwargs["help"], self._language()
+                    )
+                original_formatter = kwargs.get("format_func", str)
+
+                def localized_formatter(option: Any) -> Any:
+                    return translate_text(
+                        original_formatter(option), self._language()
+                    )
+
+                kwargs["format_func"] = localized_formatter
+                return attribute(*localized_args, **kwargs)
+
+            return localized_choice
+
+        if name == "columns":
+            def localized_columns(*args: Any, **kwargs: Any) -> list[Any]:
+                return [self._wrap(column) for column in attribute(*args, **kwargs)]
+
+            return localized_columns
+
+        if name == "tabs":
+            def localized_tabs(labels: Sequence[str], *args: Any, **kwargs: Any) -> list[Any]:
+                localized_labels = [
+                    translate_text(label, self._language()) for label in labels
+                ]
+                return [
+                    self._wrap(tab)
+                    for tab in attribute(localized_labels, *args, **kwargs)
+                ]
+
+            return localized_tabs
+
+        if name in {"container", "empty", "popover", "form"}:
+            def localized_container(*args: Any, **kwargs: Any) -> Any:
+                if name in {"popover", "form"} and args:
+                    args = (
+                        translate_text(args[0], self._language()),
+                        *args[1:],
+                    )
+                return self._wrap(attribute(*args, **kwargs))
+
+            return localized_container
+
+        if name == "expander":
+            def localized_expander(label: str, *args: Any, **kwargs: Any) -> Any:
+                return self._wrap(
+                    attribute(
+                        translate_text(label, self._language()), *args, **kwargs
+                    )
+                )
+
+            return localized_expander
+
+        if name in {"spinner", "status"}:
+            def localized_status(text: str, *args: Any, **kwargs: Any) -> Any:
+                result = attribute(
+                    translate_text(text, self._language()), *args, **kwargs
+                )
+                return self._wrap(result) if name == "status" else result
+
+            return localized_status
+
+        if name == "exception":
+            def localized_exception(error: BaseException, *args: Any, **kwargs: Any) -> Any:
+                if self._language() == "en":
+                    error = RuntimeError(translate_text(str(error), "en"))
+                return attribute(error, *args, **kwargs)
+
+            return localized_exception
+
+        return attribute

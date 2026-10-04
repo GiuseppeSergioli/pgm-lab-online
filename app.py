@@ -22,7 +22,7 @@ for _thread_variable in (
 
 import numpy as np
 import pandas as pd
-import streamlit as st
+import streamlit as _st
 from sklearn.metrics import accuracy_score
 
 from complexity import (
@@ -59,6 +59,13 @@ from hardware import (
     submit_lrz_job,
     verify_aws_identity,
 )
+from i18n import (
+    DEFAULT_LANGUAGE,
+    LocalizedStreamlit,
+    localize_dataframe,
+    normalize_language,
+    translate_text,
+)
 from pgm_core import MethodResult, stable_predictions, symmetric_feature_map
 from quantum_pgm import (
     best_certified_transpilation,
@@ -77,13 +84,13 @@ from quantum_pgm import (
 )
 
 
-st.set_page_config(
-    page_title="PGM Lab - c-PGM, k-PGM e r-PGM",
+_st.set_page_config(
+    page_title="PGM Lab · c-PGM · k-PGM · r-PGM",
     page_icon="⚛️",
     layout="wide",
 )
 
-st.markdown(
+_st.markdown(
     """
     <style>
       /*
@@ -146,6 +153,11 @@ st.markdown(
         white-space: normal; overflow-wrap: anywhere;
       }
       div.stButton > button[kind="primary"] p {color: #ffffff;}
+      .st-key-language_switcher {margin-bottom: -.65rem;}
+      .st-key-language_switcher div.stButton > button {
+        min-width: 3rem; min-height: 2.45rem; padding: .25rem .65rem;
+        font-size: 1.25rem; line-height: 1;
+      }
       [data-testid="stRadio"] [role="radiogroup"] {
         flex-wrap: wrap; row-gap: .45rem; column-gap: 1rem;
       }
@@ -206,12 +218,30 @@ st.markdown(
 )
 
 
+LANGUAGE_SESSION_KEY = "pgm_interface_language"
+if LANGUAGE_SESSION_KEY not in _st.session_state:
+    _st.session_state[LANGUAGE_SESSION_KEY] = DEFAULT_LANGUAGE
+
+
+def current_language() -> str:
+    return normalize_language(_st.session_state.get(LANGUAGE_SESSION_KEY))
+
+
+def localized_filename(italian: str, english: str) -> str:
+    """Use readable download names without changing any exported content."""
+
+    return english if current_language() == "en" else italian
+
+
+st = LocalizedStreamlit(_st, current_language)
+
+
 PRIOR_LABELS = {
     "Uniformi tra classi (p_j = 1/l)": "uniform",
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.8.0"
+APP_VERSION = "4.9.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -499,6 +529,38 @@ def render_execution_result(
     )
 
 
+def render_language_selector() -> None:
+    """Render the two explicit language flags without affecting scientific state."""
+
+    active_language = current_language()
+    with _st.container(
+        key="language_switcher",
+        horizontal=True,
+        wrap=False,
+        horizontal_alignment="right",
+        gap="small",
+    ):
+        italian_clicked = _st.button(
+            "🇮🇹",
+            key="language_it",
+            help="Italiano",
+            type="primary" if active_language == "it" else "secondary",
+        )
+        english_clicked = _st.button(
+            "🇬🇧",
+            key="language_en",
+            help="English",
+            type="primary" if active_language == "en" else "secondary",
+        )
+    requested_language = (
+        "it" if italian_clicked else "en" if english_clicked else active_language
+    )
+    if requested_language != active_language:
+        _st.session_state[LANGUAGE_SESSION_KEY] = requested_language
+        _st.rerun()
+
+
+render_language_selector()
 st.title("PGM Lab")
 st.caption(
     f"Versione {APP_VERSION} · classificatori equivalenti, circuito completo e "
@@ -508,7 +570,7 @@ st.write(
     "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
     "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, prior, "
     "split e soglia spettrale. Dopo il training, l'app costruisce anche il circuito "
-    "quantistico della PGM mediante una dilatazione di Naimark (Neumark nel paper)."
+    "quantistico della PGM mediante una dilatazione di Naimark."
 )
 
 with st.expander("Che cosa significa 'equivalenti'?", expanded=False):
@@ -545,6 +607,7 @@ with left:
         "Dataset",
         options=[dataset.key for dataset in DATASETS],
         index=2,
+        key="dataset_choice",
         format_func=lambda key: (
             f"{get_dataset_spec(key).display_name} - "
             f"{get_dataset_spec(key).samples} campioni, "
@@ -553,12 +616,20 @@ with left:
         ),
     )
 with middle:
-    copies = st.slider("Numero di copie c", min_value=1, max_value=8, value=2, step=1)
+    copies = st.slider(
+        "Numero di copie c",
+        min_value=1,
+        max_value=8,
+        value=2,
+        step=1,
+        key="copies_choice",
+    )
 with right:
     memory_budget_gib = st.select_slider(
         "Budget RAM per il calcolo",
         options=[0.5, 1.0, 2.0, 4.0, 8.0, 16.0],
         value=8.0,
+        key="memory_budget_choice",
         format_func=lambda value: f"{value:g} GiB",
         help=(
             "È un limite di sicurezza dell'app, non aumenta la RAM fisicamente "
@@ -573,6 +644,7 @@ feature_mode = st.radio(
         "Tutte le feature originali",
     ],
     horizontal=True,
+    key="feature_mode_choice",
     help=(
         "La modalità automatica usa tutte le feature quando possibile; altrimenti "
         "applica una PCA appresa solo sul training set, così restano eseguibili "
@@ -584,16 +656,27 @@ with st.expander("Impostazioni avanzate", expanded=False):
     advanced_1, advanced_2, advanced_3 = st.columns(3)
     with advanced_1:
         test_fraction = st.slider(
-            "Quota test set", min_value=0.15, max_value=0.40, value=0.20, step=0.05
+            "Quota test set",
+            min_value=0.15,
+            max_value=0.40,
+            value=0.20,
+            step=0.05,
+            key="test_fraction_choice",
         )
     with advanced_2:
         random_seed = st.number_input(
-            "Seed dello split", min_value=0, max_value=1_000_000, value=42, step=1
+            "Seed dello split",
+            min_value=0,
+            max_value=1_000_000,
+            value=42,
+            step=1,
+            key="split_seed_choice",
         )
     with advanced_3:
         prior_label = st.selectbox(
             "Prior di classe",
             list(PRIOR_LABELS),
+            key="class_prior_choice",
             help=(
                 "I prior uniformi seguono l'Eq. (4). Per classi sbilanciate il k-PGM "
                 "usa il Gram pesato, così resta esattamente equivalente ai due metodi "
@@ -604,6 +687,7 @@ with st.expander("Impostazioni avanzate", expanded=False):
         "Soglia spettrale relativa",
         options=[8, 9, 10, 11, 12],
         value=10,
+        key="spectral_tolerance_choice",
         format_func=lambda exponent: f"10^-{exponent}",
         help="Gli autovalori <= soglia x lambda_max sono esclusi in tutti e tre i metodi.",
     )
@@ -994,8 +1078,6 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         \Pr(j\mid\psi)=\langle\psi|F_j|\psi\rangle .
         $$
 
-        (La stessa costruzione è chiamata anche *Neumark dilation* nel paper.)
-
         Il registro **sys** riceve lo stato test già codificato nella base simmetrica;
         il registro **out** parte da zero e la sua misura restituisce la classe.
         """
@@ -1033,7 +1115,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                     EXACT_CIRCUIT_QUBIT_LIMIT,
                 )
                 circuit = build_qiskit_circuit(dilation)
-                circuit_drawing = circuit_svg(dilation)
+                circuit_drawing = translate_text(
+                    circuit_svg(dilation), current_language()
+                )
                 test_states = symmetric_feature_map(
                     payload["X_test_encoded"], copies
                 )
@@ -1184,8 +1268,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 st.download_button(
                                     "Scarica circuito completo (TXT)",
                                     data=synthesis_report.diagram_text.encode("utf-8"),
-                                    file_name=(
-                                        f"circuito_completo_{selected_key}_c{copies}.txt"
+                                    file_name=localized_filename(
+                                        f"circuito_completo_{selected_key}_c{copies}.txt",
+                                        f"full_circuit_{selected_key}_c{copies}.txt",
                                     ),
                                     mime="text/plain",
                                 )
@@ -1200,8 +1285,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 st.download_button(
                                     "Scarica circuito decomposto (QPY)",
                                     data=synthesis_report.transpiled_qpy,
-                                    file_name=(
-                                        f"circuito_decomposto_{selected_key}_c{copies}.qpy"
+                                    file_name=localized_filename(
+                                        f"circuito_decomposto_{selected_key}_c{copies}.qpy",
+                                        f"decomposed_circuit_{selected_key}_c{copies}.qpy",
                                     ),
                                     mime="application/octet-stream",
                                 )
@@ -1408,8 +1494,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 download_columns[0].download_button(
                                     "Scarica circuito ottimizzato (QPY)",
                                     data=best_report.transpiled_qpy,
-                                    file_name=(
-                                        f"circuito_ottimizzato_{selected_key}_c{copies}.qpy"
+                                    file_name=localized_filename(
+                                        f"circuito_ottimizzato_{selected_key}_c{copies}.qpy",
+                                        f"optimized_circuit_{selected_key}_c{copies}.qpy",
                                     ),
                                     mime="application/octet-stream",
                                 )
@@ -1417,8 +1504,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 download_columns[1].download_button(
                                     "Scarica diagramma ottimizzato (TXT)",
                                     data=best_report.diagram_text.encode("utf-8"),
-                                    file_name=(
-                                        f"circuito_ottimizzato_{selected_key}_c{copies}.txt"
+                                    file_name=localized_filename(
+                                        f"circuito_ottimizzato_{selected_key}_c{copies}.txt",
+                                        f"optimized_circuit_{selected_key}_c{copies}.txt",
                                     ),
                                     mime="text/plain",
                                 )
@@ -1555,9 +1643,12 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
 
                 st.download_button(
                     "Scarica classificazioni dettagliate (CSV)",
-                    data=classification_details.to_csv(index=False).encode("utf-8"),
-                    file_name=(
-                        f"classificazioni_dettagliate_{selected_key}_c{copies}.csv"
+                    data=localize_dataframe(
+                        classification_details, current_language()
+                    ).to_csv(index=False).encode("utf-8"),
+                    file_name=localized_filename(
+                        f"classificazioni_dettagliate_{selected_key}_c{copies}.csv",
+                        f"detailed_classifications_{selected_key}_c{copies}.csv",
                     ),
                     mime="text/csv",
                 )
@@ -2859,14 +2950,20 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 export_columns[0].download_button(
                     "Scarica diagramma SVG",
                     data=circuit_drawing.encode("utf-8"),
-                    file_name=f"circuito_PGM_{selected_key}_c{copies}.svg",
+                    file_name=localized_filename(
+                        f"circuito_PGM_{selected_key}_c{copies}.svg",
+                        f"PGM_circuit_{selected_key}_c{copies}.svg",
+                    ),
                     mime="image/svg+xml",
                     width="stretch",
                 )
                 export_columns[1].download_button(
                     "Scarica circuito QPY",
                     data=qpy_bytes(circuit),
-                    file_name=f"circuito_PGM_{selected_key}_c{copies}.qpy",
+                    file_name=localized_filename(
+                        f"circuito_PGM_{selected_key}_c{copies}.qpy",
+                        f"PGM_circuit_{selected_key}_c{copies}.qpy",
+                    ),
                     mime="application/octet-stream",
                     width="stretch",
                 )
@@ -2879,7 +2976,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                         encoded_feature_count=payload["d"],
                         copies=copies,
                     ),
-                    file_name=f"dilatazione_PGM_{selected_key}_c{copies}.npz",
+                    file_name=localized_filename(
+                        f"dilatazione_PGM_{selected_key}_c{copies}.npz",
+                        f"PGM_dilation_{selected_key}_c{copies}.npz",
+                    ),
                     mime="application/octet-stream",
                     width="stretch",
                 )
@@ -2890,7 +2990,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         else:
             dilation = symbolic_dilation(resources)
             circuit = build_qiskit_circuit(dilation)
-            circuit_drawing = circuit_svg(dilation)
+            circuit_drawing = translate_text(
+                circuit_svg(dilation), current_language()
+            )
             st.warning(
                 "Per questa configurazione la dilatazione avrebbe una matrice densa "
                 f"{resources.unitary_dimension:,} x {resources.unitary_dimension:,} "
@@ -2921,9 +3023,12 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
     predictions = prediction_frame(results, y_test)
     st.download_button(
         "Scarica le predizioni (CSV)",
-        data=predictions.to_csv(index=False).encode("utf-8"),
-        file_name=(
-            f"predizioni_{selected_key}_c{copies}_seed{int(random_seed)}.csv"
+        data=localize_dataframe(predictions, current_language())
+        .to_csv(index=False)
+        .encode("utf-8"),
+        file_name=localized_filename(
+            f"predizioni_{selected_key}_c{copies}_seed{int(random_seed)}.csv",
+            f"predictions_{selected_key}_c{copies}_seed{int(random_seed)}.csv",
         ),
         mime="text/csv",
     )
