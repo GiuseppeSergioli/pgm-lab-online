@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from io import BytesIO
 import json
 from pathlib import Path
 import subprocess
@@ -20,6 +21,7 @@ from quantum_pgm import (
     build_qiskit_isometry_circuit,
     build_reduced_pgm_measurement,
     circuit_svg,
+    dilation_npz_bytes,
     entangling_gate_count,
     generic_unitary_cnot_upper_bound,
     isolated_transpile_qpy,
@@ -85,6 +87,30 @@ class NaimarkDilationTests(unittest.TestCase):
                 0.0,
                 atol=2e-10,
             )
+
+    def test_npz_export_records_the_selected_encoding(self) -> None:
+        measurement = build_reduced_pgm_measurement(
+            self.X_train,
+            self.y_train,
+            copies=2,
+            prior_mode="uniform",
+            relative_tolerance=1e-11,
+        )
+        dilation = build_naimark_dilation(measurement, exact_qubit_limit=8)
+        archive = dilation_npz_bytes(
+            measurement,
+            dilation,
+            raw_feature_count=4,
+            base_feature_count=3,
+            encoded_feature_count=4,
+            encoding="stereographic",
+            rescaling_factor=0.2,
+            copies=2,
+        )
+        with np.load(BytesIO(archive)) as data:
+            self.assertEqual(data["encoding"].item(), "stereographic")
+            self.assertEqual(data["base_feature_count"].item(), 3)
+            self.assertAlmostEqual(data["rescaling_factor"].item(), 0.2)
 
     def test_isometry_is_exact_action_of_unitary_on_valid_inputs(self) -> None:
         measurement = build_reduced_pgm_measurement(

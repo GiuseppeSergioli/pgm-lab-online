@@ -241,7 +241,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "4.9.0"
+APP_VERSION = "5.0.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -259,7 +259,8 @@ def execute_experiment(
     random_seed: int,
     prior_mode: str,
     relative_tolerance: float,
-    max_encoded_features: int | None,
+    tensor_max_encoded_features: int | None,
+    stereographic_max_encoded_features: int | None,
     scalable_full_features: bool,
 ) -> dict:
     return run_experiment(
@@ -269,7 +270,8 @@ def execute_experiment(
         random_seed=random_seed,
         prior_mode=prior_mode,
         relative_tolerance=relative_tolerance,
-        max_encoded_features=max_encoded_features,
+        max_encoded_features=tensor_max_encoded_features,
+        stereographic_max_encoded_features=stereographic_max_encoded_features,
         scalable_full_features=scalable_full_features,
         explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
     )
@@ -569,7 +571,9 @@ st.caption(
 st.write(
     "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
     "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, prior, "
-    "split e soglia spettrale. Dopo il training, l'app costruisce anche il circuito "
+    "split e soglia spettrale. Sul solo training set, l'app sceglie automaticamente "
+    "tra encoding in ampiezza normalizzato ed encoding stereografico, ottimizzandone "
+    "il fattore di rescaling. Dopo il training finale costruisce anche il circuito "
     "quantistico della PGM mediante una dilatazione di Naimark."
 )
 
@@ -694,24 +698,41 @@ with st.expander("Impostazioni avanzate", expanded=False):
 
 spec = get_dataset_spec(selected_key)
 if feature_mode.startswith("Automatica"):
-    encoded_feature_count = automatic_encoded_feature_count(
+    tensor_base_feature_count = automatic_encoded_feature_count(
         spec.features,
         copies,
         spec.classes,
         max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
         max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
     )
+    stereographic_base_feature_count = automatic_encoded_feature_count(
+        spec.features,
+        copies,
+        spec.classes,
+        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
+        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
+        minimum_feature_count=1,
+        added_encoding_features=1,
+    )
 else:
-    encoded_feature_count = spec.features
+    tensor_base_feature_count = spec.features
+    stereographic_base_feature_count = spec.features
+
+# The stereographic map adds one coordinate.  Resource previews use the larger
+# candidate dimension, so whichever encoding wins can be executed safely.
+stereographic_encoded_dimension = stereographic_base_feature_count + 1
+preview_encoded_dimension = max(
+    tensor_base_feature_count, stereographic_encoded_dimension
+)
 n_test_estimate = ceil(spec.samples * test_fraction)
 n_train_estimate = spec.samples - n_test_estimate
 tensor_dimension, symmetric_dimension = representation_dimensions(
-    encoded_feature_count, copies
+    preview_encoded_dimension, copies
 )
 feasibility = implementation_feasibility(
     n_train=n_train_estimate,
     n_test=n_test_estimate,
-    dimension=encoded_feature_count,
+    dimension=preview_encoded_dimension,
     copies=copies,
     memory_budget_bytes=int(memory_budget_gib * 1024**3),
 )
@@ -720,24 +741,32 @@ st.subheader("2. Controlla le dimensioni prima del calcolo")
 metric_1, metric_2, metric_3, metric_4, metric_5 = st.columns(5)
 metric_1.metric("N training stimato", f"{n_train_estimate:,}")
 metric_2.metric("Feature originali", f"{spec.features:,}")
-metric_3.metric("Feature codificate", f"{encoded_feature_count:,}")
+metric_3.metric(
+    "Dimensioni candidate (ampiezza / stereografico)",
+    f"{tensor_base_feature_count:,} / {stereographic_encoded_dimension:,}",
+)
 metric_4.metric("d^c (c-PGM)", f"{tensor_dimension:,}")
 metric_5.metric("d_sym (r-PGM)", f"{symmetric_dimension:,}")
 
-if encoded_feature_count < spec.features:
+if (
+    tensor_base_feature_count < spec.features
+    or stereographic_base_feature_count < spec.features
+):
     st.info(
-        "Riduzione automatica necessaria: "
-        f"{spec.features} → {encoded_feature_count} feature mediante PCA train-only. "
-        "La percentuale di varianza conservata verrà mostrata dopo il calcolo."
+        "Riduzione automatica quantum-ready: la baseline usa "
+        f"{tensor_base_feature_count} feature di base; l'encoding stereografico usa "
+        f"{stereographic_base_feature_count} feature di base più una coordinata "
+        "stereografica. Ogni PCA e ogni confronto vengono appresi esclusivamente "
+        "sul training set. La configurazione scelta sarà mostrata dopo il calcolo."
     )
 else:
     st.success(
-        "Nessuna riduzione necessaria: questa configurazione usa tutte le feature "
-        "originali."
+        "Nessuna PCA necessaria: entrambi i candidati usano tutte le feature "
+        "originali; l'encoding stereografico aggiunge una coordinata."
     )
 
 preview_circuit_resources = resources_for_dataset(
-    encoded_feature_count,
+    preview_encoded_dimension,
     copies,
     spec.classes,
     exact_qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
@@ -765,7 +794,7 @@ else:
 
 preview_complexities = paper_complexities(
     n_train=n_train_estimate,
-    dimension=encoded_feature_count,
+    dimension=preview_encoded_dimension,
     copies=copies,
     class_count=spec.classes,
     gram_rank=None,
@@ -779,12 +808,13 @@ st.caption(
     "Le formule e la memoria asintotica seguono le Tabelle 1, 2 e 5 del paper. "
     "I proxy sono conteggi dei termini dominanti, non FLOP misurati. Prima del run, "
     "per k-PGM si usa il limite superiore r_G=N; dopo il run compare il rank effettivo. "
-    "Le dimensioni mostrate usano il numero di feature codificate indicato sopra."
+    "Le dimensioni mostrate usano, in modo prudenziale, il candidato di encoding "
+    "più grande. Dopo il run saranno ricalcolate sulla configurazione selezionata."
 )
 
 full_feature_mode = feature_mode == "Tutte le feature originali"
 kernel_peak_bytes = 8 * (
-    8 * n_train_estimate**2 + n_train_estimate * encoded_feature_count
+    8 * n_train_estimate**2 + n_train_estimate * preview_encoded_dimension
 )
 kernel_feasible = (
     kernel_peak_bytes <= int(memory_budget_gib * 1024**3)
@@ -823,7 +853,8 @@ configuration_key = (
     selected_key,
     copies,
     feature_mode,
-    encoded_feature_count,
+    tensor_base_feature_count,
+    stereographic_base_feature_count,
     float(test_fraction),
     int(random_seed),
     PRIOR_LABELS[prior_label],
@@ -852,7 +883,8 @@ if run_clicked:
                 int(random_seed),
                 PRIOR_LABELS[prior_label],
                 10.0 ** (-int(tolerance_exponent)),
-                encoded_feature_count,
+                tensor_base_feature_count,
+                stereographic_base_feature_count,
                 scalable_full_features,
             )
         st.session_state["last_pgm_run"] = {
@@ -870,6 +902,107 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
     table = results_frame(results, y_test)
 
     st.subheader("3. Risultati")
+    selection = payload["encoding_selection"]
+    selected_is_stereographic = payload["encoding"] == "stereographic"
+    selected_encoding_label = (
+        "Stereografico + encoding in ampiezza"
+        if selected_is_stereographic
+        else "Encoding in ampiezza normalizzato"
+    )
+    if selected_is_stereographic:
+        st.success(
+            "Selezione automatica completata: è stato scelto l'encoding "
+            "stereografico con fattore di rescaling "
+            f"t = {payload['rescaling_factor']:g}. Questa configurazione viene "
+            "usata nel training finale, nei tre classificatori, nel circuito e "
+            "nelle eventuali esecuzioni su simulatore o QPU."
+        )
+    else:
+        st.success(
+            "Selezione automatica completata: è stato scelto l'encoding in "
+            "ampiezza con normalizzazione L2. Nessun candidato stereografico ha "
+            "superato la baseline oltre la soglia minima richiesta."
+        )
+
+    selection_metrics = st.columns(4)
+    selection_metrics[0].metric(
+        "Encoding selezionato", selected_encoding_label
+    )
+    selection_metrics[1].metric(
+        "Fattore di rescaling t",
+        (
+            f"{payload['rescaling_factor']:g}"
+            if selected_is_stereographic
+            else "Non applicabile"
+        ),
+    )
+    selection_metrics[2].metric(
+        "Accuratezza di validazione",
+        f"{100.0 * selection['validation_accuracy']:.2f}%",
+    )
+    selection_metrics[3].metric(
+        "Vantaggio sulla baseline",
+        f"{100.0 * selection['improvement']:+.2f} punti %",
+    )
+    st.caption(
+        "La scelta è stata effettuata esclusivamente sul training set mediante "
+        f"{selection['protocol']} ({selection['tuning_samples']} campioni). Il test "
+        "set non è stato consultato. Per evitare una scelta dovuta al rumore, lo "
+        "stereografico deve migliorare la baseline di oltre "
+        f"{100.0 * selection['minimum_gain']:.2f} punti percentuali."
+    )
+
+    candidate_rows = []
+    for candidate in selection["candidates"]:
+        is_selected = candidate["key"] == selection["selected_key"]
+        if is_selected:
+            candidate_status = "✓ Selezionato"
+        elif candidate["available"]:
+            candidate_status = "Disponibile"
+        else:
+            candidate_status = "Non disponibile"
+        candidate_rows.append(
+            {
+                "Encoding": (
+                    "Encoding in ampiezza normalizzato"
+                    if candidate["encoding"] == "tensor_l2"
+                    else "Stereografico + encoding in ampiezza"
+                ),
+                "Fattore t": (
+                    "—"
+                    if candidate["rescaling_factor"] is None
+                    else f"{candidate['rescaling_factor']:g}"
+                ),
+                "Feature dopo PCA": candidate["base_dimension"],
+                "Dimensione encoding": candidate["encoded_dimension"],
+                "Accuratezza validazione": (
+                    f"{100.0 * candidate['validation_accuracy']:.2f}%"
+                    if candidate["available"]
+                    else "—"
+                ),
+                "Deviazione standard": (
+                    f"{100.0 * candidate['validation_std']:.2f} punti %"
+                    if candidate["available"]
+                    else "—"
+                ),
+                "Valutatore PGM": candidate["evaluators"] or "—",
+                "Stato": candidate_status,
+            }
+        )
+    with st.expander(
+        "Confronto degli encoding sul training set", expanded=False
+    ):
+        st.dataframe(
+            pd.DataFrame(candidate_rows),
+            hide_index=True,
+            width="stretch",
+        )
+        st.caption(
+            "Il valutatore indicato è la rappresentazione PGM esatta meno costosa "
+            "per quella fold. c-PGM, k-PGM e r-PGM hanno gli stessi score teorici; "
+            "il training finale continua comunque a verificarli tutti e tre."
+        )
+
     accuracy_columns = st.columns(3)
     for column, method in zip(accuracy_columns, ("c-PGM", "k-PGM", "r-PGM")):
         accuracy = accuracy_score(y_test, results[method].predictions)
@@ -944,25 +1077,38 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         lambda value: "—" if pd.isna(value) else f"{value:.6f}"
     )
     st.dataframe(display_table, hide_index=True, width="stretch")
-    st.caption(
-        f"Dataset caricato da: {payload['source_used']}. Preprocessing: imputazione "
-        f"mediana, {payload['feature_transform']}, min-max [0.001, 1] e "
-        "normalizzazione L2; ogni trasformazione dipendente dai dati è appresa solo "
-        "sul training set."
+    encoding_preprocessing = (
+        f"mappa stereografica con t={payload['rescaling_factor']:g}, seguita "
+        "dalla preparazione in ampiezza"
+        if selected_is_stereographic
+        else "normalizzazione L2 e preparazione in ampiezza"
     )
-    encoding_columns = st.columns(3)
+    st.caption(
+        f"Dataset caricato da: {payload['source_used']}. Preprocessing finale: "
+        f"imputazione mediana, {payload['feature_transform']}, min-max [0.001, 1] e "
+        f"{encoding_preprocessing}. Ogni trasformazione dipendente dai dati e la "
+        "scelta dell'encoding sono apprese solo sul training set."
+    )
+    encoding_columns = st.columns(4)
     encoding_columns[0].metric("Feature originali", payload["raw_d"])
-    encoding_columns[1].metric("Feature utilizzate", payload["d"])
-    encoding_columns[2].metric(
+    encoding_columns[1].metric("Feature dopo PCA", payload["base_d"])
+    encoding_columns[2].metric("Dimensione encoding", payload["d"])
+    encoding_columns[3].metric(
         "Varianza PCA conservata",
         (
             f"{100.0 * payload['explained_variance_ratio']:.2f}%"
-            if payload["d"] < payload["raw_d"]
+            if payload["base_d"] < payload["raw_d"]
             else "100% (nessuna PCA)"
         ),
     )
 
-    if not preview_circuit_resources.exact_materialization_allowed:
+    actual_circuit_resources = resources_for_dataset(
+        payload["d"],
+        copies,
+        payload["class_count"],
+        exact_qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
+    )
+    if not actual_circuit_resources.exact_materialization_allowed:
         classical_predictions = results["k-PGM"].predictions
         classical_classes = np.unique(payload["y_train"])
         classical_correct = classical_predictions == y_test
@@ -1050,12 +1196,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
     )
 
     st.subheader("4. Circuito quantistico della PGM")
-    resources = resources_for_dataset(
-        payload["d"],
-        copies,
-        payload["class_count"],
-        exact_qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
-    )
+    resources = actual_circuit_resources
     circuit_metrics = st.columns(5)
     circuit_metrics[0].metric("Dimensione ridotta", f"{resources.feature_dimension:,}")
     circuit_metrics[1].metric("Qubit sistema", resources.system_qubits)
@@ -1158,7 +1299,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
             logical_qpy = qpy_bytes(circuit)
             synthesis_id = (
                 f"{APP_VERSION}|{selected_key}|{copies}|{int(random_seed)}|"
-                f"{PRIOR_LABELS[prior_label]}|{int(tolerance_exponent)}"
+                f"{PRIOR_LABELS[prior_label]}|{int(tolerance_exponent)}|"
+                f"{feature_mode}|{float(test_fraction):.3f}|{payload['encoding']}|"
+                f"{payload['rescaling_factor']}|d={payload['d']}"
             )
             circuit_tab, outcomes_tab, checks_tab, hardware_tab, export_tab = st.tabs(
                 [
@@ -2973,7 +3116,10 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                         measurement,
                         dilation,
                         raw_feature_count=payload["raw_d"],
+                        base_feature_count=payload["base_d"],
                         encoded_feature_count=payload["d"],
+                        encoding=payload["encoding"],
+                        rescaling_factor=payload["rescaling_factor"],
                         copies=copies,
                     ),
                     file_name=localized_filename(

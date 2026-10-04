@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 4.9.0**
+**Versione 5.0.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -16,6 +16,27 @@ L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
 training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
 circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Novità della versione 5.0.0
+
+- Prima del training finale, l'app confronta automaticamente l'encoding in
+  ampiezza con normalizzazione L2 e l'encoding stereografico definito dalla
+  proiezione inversa. Per quest'ultimo esegue una grid search train-only sui
+  fattori `t = 0.1, 0.2, 0.5, 1, 2`.
+- La selezione non consulta mai il test set: usa una validazione stratificata
+  interna al training, riapprendendo imputazione, scaling ed eventuale PCA dentro
+  ogni fold. Per i training più grandi usa un holdout stratificato su al massimo
+  500 campioni, così il costo resta controllato.
+- Per evitare di scegliere lo stereografico a causa di fluttuazioni marginali,
+  esso deve superare la baseline di oltre 0,5 punti percentuali; in caso contrario
+  resta l'encoding in ampiezza.
+- L'interfaccia riporta encoding selezionato, fattore `t`, accuratezza di
+  validazione, miglioramento e tabella di tutti i candidati. La configurazione
+  vincente è poi usata senza eccezioni da c-PGM, k-PGM, r-PGM, circuito,
+  simulatori e QPU.
+- Il budget quantum-ready tiene conto della coordinata aggiuntiva
+  dell'encoding stereografico. Le anteprime di memoria, dimensione e qubit usano
+  prudenzialmente il candidato più grande.
 
 ## Novità della versione 4.9.0
 
@@ -168,19 +189,28 @@ caricati dalle copie pubbliche UCI incluse direttamente in scikit-learn.
 
 ## Scelte numeriche esplicite
 
-Il paper assume che i dati siano gia codificati come vettori unitari. L'app applica,
-senza leakage dal test set:
+Il paper dei classificatori PGM assume che i dati siano già codificati come
+vettori unitari. L'app applica, senza leakage dal test set:
 
 1. split stratificato;
-2. imputazione con la mediana appresa sul training set;
-3. se richiesta dalla modalità quantum-ready, standardizzazione e PCA apprese
-   esclusivamente sul training set;
-4. trasformazione min-max nell'intervallo `[0.001, 1]`, appresa sul training set;
-5. normalizzazione L2 riga per riga.
+2. selezione dell'encoding sul solo training set mediante 3-fold stratificata
+   (oppure holdout stratificato per i casi più grandi);
+3. in ogni fold interno: imputazione mediana, eventuale standardizzazione/PCA e
+   min-max `[0.001, 1]`, tutti appresi soltanto sulla porzione di fit;
+4. confronto tra:
+   - **encoding in ampiezza standard**, ottenuto con normalizzazione L2;
+   - **encoding stereografico**, che trasforma `x` in
+     `(2 t x, ||t x||² - 1) / (||t x||² + 1)` e prova
+     `t ∈ {0.1, 0.2, 0.5, 1, 2}`;
+5. scelta dello stereografico soltanto se il suo miglior risultato supera la
+   baseline di oltre `0.005`; altrimenti prevale la baseline;
+6. nuovo fit del preprocessing selezionato sull'intero training set e una sola
+   trasformazione finale del test set.
 
 L'estremo positivo `0.001` evita il vettore nullo senza aggiungere una feature.
-L'interfaccia distingue la dimensione grezza del dataset dalla dimensione codificata
-`d` effettivamente usata dalle tre PGM e dal circuito.
+La mappa stereografica aggiunge invece esattamente una coordinata ed è già a norma
+unitaria. L'interfaccia distingue dimensione grezza, feature dopo l'eventuale PCA
+e dimensione codificata `d` effettivamente usata dalle tre PGM e dal circuito.
 
 Per i prior di classe sono disponibili due opzioni:
 

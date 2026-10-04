@@ -101,6 +101,29 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Feature originali": "Original features",
     "Feature codificate": "Encoded features",
     "Feature utilizzate": "Features used",
+    "Dimensioni candidate (ampiezza / stereografico)": (
+        "Candidate dimensions (amplitude / stereographic)"
+    ),
+    "Encoding selezionato": "Selected encoding",
+    "Encoding in ampiezza normalizzato": "Normalized amplitude encoding",
+    "Stereografico + encoding in ampiezza": (
+        "Stereographic + amplitude encoding"
+    ),
+    "Fattore di rescaling t": "Rescaling factor t",
+    "Non applicabile": "Not applicable",
+    "Accuratezza di validazione": "Validation accuracy",
+    "Vantaggio sulla baseline": "Gain over baseline",
+    "Confronto degli encoding sul training set": (
+        "Training-set encoding comparison"
+    ),
+    "Encoding": "Encoding",
+    "Fattore t": "Factor t",
+    "Feature dopo PCA": "Features after PCA",
+    "Dimensione encoding": "Encoding dimension",
+    "Deviazione standard": "Standard deviation",
+    "Valutatore PGM": "PGM evaluator",
+    "✓ Selezionato": "✓ Selected",
+    "Disponibile": "Available",
     "Esegui i classificatori e costruisci il circuito": (
         "Run the classifiers and build the circuit"
     ),
@@ -323,6 +346,21 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     ),
     "dispositivo": "device",
     "stato": "status",
+    "Il fattore di rescaling deve essere positivo e finito.": (
+        "The rescaling factor must be positive and finite."
+    ),
+    "Fattore di rescaling stereografico mancante.": (
+        "The stereographic rescaling factor is missing."
+    ),
+    "I fattori di rescaling devono essere positivi e finiti.": (
+        "Rescaling factors must be positive and finite."
+    ),
+    "Il miglioramento minimo non può essere negativo.": (
+        "The minimum gain cannot be negative."
+    ),
+    "Le feature aggiunte dall'encoding non possono essere negative.": (
+        "The number of features added by the encoding cannot be negative."
+    ),
 }
 
 
@@ -332,14 +370,18 @@ NORMALIZED_TRANSLATIONS: dict[str, str] = {
     (
         "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
         "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, prior, "
-        "split e soglia spettrale. Dopo il training, l'app costruisce anche il circuito "
+        "split e soglia spettrale. Sul solo training set, l'app sceglie automaticamente "
+        "tra encoding in ampiezza normalizzato ed encoding stereografico, ottimizzandone "
+        "il fattore di rescaling. Dopo il training finale costruisce anche il circuito "
         "quantistico della PGM mediante una dilatazione di Naimark."
     ): (
         "Reproducible comparison of **c-PGM**, **k-PGM**, and **r-PGM (Rc-PGM)**. "
         "The three classifiers use different representations with the same data, "
-        "class priors, train/test split, and spectral threshold. After training, the "
-        "app also builds the quantum circuit implementing the PGM through a Naimark "
-        "dilation."
+        "class priors, train/test split, and spectral threshold. Using training data "
+        "only, the app automatically selects either normalized amplitude encoding or "
+        "stereographic encoding and optimizes its rescaling factor. After final "
+        "training, the app also builds the quantum circuit implementing the PGM "
+        "through a Naimark dilation."
     ),
     (
         "- **c-PGM** costruisce esplicitamente il tensore di dimensione $d^c$. "
@@ -392,6 +434,12 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("La distanza è la total variation distance fra frequenze osservate e probabilità teoriche: valori più vicini a zero indicano maggiore accordo.", "The distance is the total variation distance between observed frequencies and theoretical probabilities: values closer to zero indicate better agreement."),
     ("È un limite di sicurezza dell'app, non aumenta la RAM fisicamente disponibile sul server.", "This is an app safety limit; it does not increase the RAM physically available on the server."),
     ("La modalità automatica usa tutte le feature quando possibile; altrimenti applica una PCA appresa solo sul training set, così restano eseguibili c-PGM, k-PGM, r-PGM e il circuito.", "Automatic mode uses all features whenever possible; otherwise it applies PCA fitted only on the training set so c-PGM, k-PGM, r-PGM, and the circuit remain executable."),
+    ("Riduzione automatica quantum-ready: la baseline usa", "Automatic quantum-ready reduction: the baseline uses"),
+    ("feature di base; l'encoding stereografico usa", "base features; stereographic encoding uses"),
+    ("feature di base più una coordinata stereografica.", "base features plus one stereographic coordinate."),
+    ("Ogni PCA e ogni confronto vengono appresi esclusivamente sul training set.", "Every PCA transform and every comparison are fitted exclusively on the training set."),
+    ("La configurazione scelta sarà mostrata dopo il calcolo.", "The selected configuration will be shown after computation."),
+    ("Nessuna PCA necessaria: entrambi i candidati usano tutte le feature originali; l'encoding stereografico aggiunge una coordinata.", "No PCA is needed: both candidates use all original features; stereographic encoding adds one coordinate."),
     ("I prior uniformi seguono l'Eq. (4). Per classi sbilanciate il k-PGM usa il Gram pesato, così resta esattamente equivalente ai due metodi primali.", "Uniform priors follow Eq. (4). For imbalanced classes, k-PGM uses the weighted Gram matrix and remains exactly equivalent to the two primal methods."),
     ("Gli autovalori <= soglia x lambda_max sono esclusi in tutti e tre i metodi.", "Eigenvalues <= threshold × lambda_max are discarded in all three methods."),
     ("Riduzione automatica necessaria:", "Automatic reduction required:"),
@@ -407,7 +455,8 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Le formule e la memoria asintotica seguono le Tabelle 1, 2 e 5 del paper.", "The formulas and asymptotic memory follow Tables 1, 2, and 5 of the paper."),
     ("I proxy sono conteggi dei termini dominanti, non FLOP misurati.", "The proxies count dominant terms; they are not measured FLOPs."),
     ("Prima del run, per k-PGM si usa il limite superiore r_G=N; dopo il run compare il rank effettivo.", "Before execution, k-PGM uses the upper bound r_G=N; after execution, the effective rank is shown."),
-    ("Le dimensioni mostrate usano il numero di feature codificate indicato sopra.", "The displayed dimensions use the encoded feature count shown above."),
+    ("Le dimensioni mostrate usano, in modo prudenziale, il candidato di encoding più grande.", "The displayed dimensions conservatively use the larger encoding candidate."),
+    ("Dopo il run saranno ricalcolate sulla configurazione selezionata.", "After execution, they are recalculated for the selected configuration."),
     ("Configurazione eseguibile con il limite prudenziale dell'app.", "Configuration executable within the app's conservative limit."),
     ("Picco NumPy stimato:", "Estimated NumPy peak:"),
     ("Le rappresentazioni primali complete sono troppo grandi da materializzare, ma la classificazione è disponibile in modalità scalabile con tutte le feature originali.", "The full primal representations are too large to materialize, but classification remains available in scalable mode with all original features."),
@@ -418,6 +467,20 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Usa la modalità automatica quantum-ready oppure aumenta il budget solo se il computer dispone realmente di quella RAM.", "Use automatic quantum-ready mode, or increase the budget only if the computer actually has that amount of RAM."),
     ("La tabella di complessità rimane comunque valida.", "The complexity table remains valid."),
     ("Download/cache del dataset e calcolo dei tre PGM in corso...", "Downloading/caching the dataset and computing the three PGMs..."),
+    ("Selezione automatica completata: è stato scelto l'encoding stereografico con fattore di rescaling", "Automatic selection completed: stereographic encoding was selected with rescaling factor"),
+    ("Questa configurazione viene usata nel training finale, nei tre classificatori, nel circuito e nelle eventuali esecuzioni su simulatore o QPU.", "This configuration is used for final training, all three classifiers, the circuit, and any simulator or QPU execution."),
+    ("Selezione automatica completata: è stato scelto l'encoding in ampiezza con normalizzazione L2.", "Automatic selection completed: amplitude encoding with L2 normalization was selected."),
+    ("Nessun candidato stereografico ha superato la baseline oltre la soglia minima richiesta.", "No stereographic candidate exceeded the baseline by more than the required minimum threshold."),
+    ("La scelta è stata effettuata esclusivamente sul training set mediante", "Selection used training data exclusively, with"),
+    ("3-fold stratificata sul training", "3-fold stratified cross-validation on training data"),
+    ("holdout stratificato 80/20 sul training", "a stratified 80/20 holdout on training data"),
+    ("holdout stratificato adattivo sul training (classi rare protette)", "an adaptive stratified holdout on training data (rare classes protected)"),
+    ("Il test set non è stato consultato.", "The test set was not inspected."),
+    ("Per evitare una scelta dovuta al rumore, lo stereografico deve migliorare la baseline di oltre", "To avoid a noise-driven choice, stereographic encoding must improve on the baseline by more than"),
+    ("punti percentuali.", "percentage points."),
+    ("punti %", "pp"),
+    ("Il valutatore indicato è la rappresentazione PGM esatta meno costosa per quella fold.", "The listed evaluator is the least expensive exact PGM representation for that fold."),
+    ("c-PGM, k-PGM e r-PGM hanno gli stessi score teorici; il training finale continua comunque a verificarli tutti e tre.", "c-PGM, k-PGM, and r-PGM have the same theoretical scores; final training still verifies all three."),
     ("Classificazione completata con tutte le feature originali: le tre formulazioni restituiscono le stesse predizioni sui", "Classification completed with all original features: the three formulations return identical predictions for all"),
     ("campioni di test.", "test samples."),
     ("Una formulazione calcolata esplicitamente non coincide con il risultato kernel su tutti i campioni.", "An explicitly evaluated formulation does not match the kernel result on every sample."),
@@ -431,6 +494,12 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Le predizioni non coincidono tutte.", "The predictions do not all match."),
     ("Controlla la soglia spettrale e gli scarti tra score: il caso può essere numericamente quasi degenere.", "Check the spectral threshold and score discrepancies; the case may be numerically near-degenerate."),
     ("Dataset caricato da:", "Dataset loaded from:"),
+    ("Preprocessing finale: imputazione mediana,", "Final preprocessing: median imputation,"),
+    (", min-max [0.001, 1] e ", ", min-max [0.001, 1], and "),
+    ("mappa stereografica con", "stereographic map with"),
+    ("seguita dalla preparazione in ampiezza", "followed by amplitude preparation"),
+    ("normalizzazione L2 e preparazione in ampiezza", "L2 normalization and amplitude preparation"),
+    ("Ogni trasformazione dipendente dai dati e la scelta dell'encoding sono apprese solo sul training set.", "Every data-dependent transformation and the encoding selection are fitted only on the training set."),
     ("Preprocessing: imputazione mediana,", "Preprocessing: median imputation,"),
     (", min-max [0.001, 1] e normalizzazione L2; ogni trasformazione dipendente dai dati è appresa solo sul training set.", ", min-max [0.001, 1], and L2 normalization; every data-dependent transformation is fitted only on the training set."),
     ("#### Classificazione test (calcolo classico scalabile)", "#### Test classification (scalable classical computation)"),
@@ -737,6 +806,10 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Sintesi completata nel processo isolato.", "Synthesis completed in the isolated process."),
     ("La dilatazione esatta non è disponibile.", "The exact dilation is not available."),
     ("test_fraction deve essere strettamente tra 0 e 1.", "test_fraction must be strictly between 0 and 1."),
+    ("Encoding non riconosciuto:", "Unknown encoding:"),
+    ("La validazione dell'encoding tensoriale non è riuscita:", "Validation of the normalized amplitude encoding failed:"),
+    ("selezione automatica disattivata", "automatic selection disabled"),
+    ("Il training set è troppo piccolo per validare automaticamente l'encoding.", "The training set is too small for automatic encoding validation."),
     ("max_encoded_features deve essere un intero o None.", "max_encoded_features must be an integer or None."),
     ("max_encoded_features deve essere positivo.", "max_encoded_features must be positive."),
     ("deve essere una matrice bidimensionale.", "must be a two-dimensional matrix."),

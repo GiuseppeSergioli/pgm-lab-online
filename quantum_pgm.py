@@ -859,6 +859,9 @@ def dilation_npz_bytes(
     raw_feature_count: int,
     encoded_feature_count: int,
     copies: int,
+    base_feature_count: int | None = None,
+    encoding: str = "tensor_l2",
+    rescaling_factor: float | None = None,
 ) -> bytes:
     if dilation.unitary is None:
         raise ValueError("La dilatazione esatta non è disponibile.")
@@ -869,7 +872,16 @@ def dilation_npz_bytes(
         effects=np.stack(measurement.effects),
         classes=np.asarray([str(value) for value in measurement.classes]),
         raw_feature_count=np.asarray(raw_feature_count),
+        base_feature_count=np.asarray(
+            encoded_feature_count
+            if base_feature_count is None
+            else base_feature_count
+        ),
         encoded_feature_count=np.asarray(encoded_feature_count),
+        encoding=np.asarray(encoding),
+        rescaling_factor=np.asarray(
+            np.nan if rescaling_factor is None else rescaling_factor
+        ),
         copies=np.asarray(copies),
         reduced_feature_dimension=np.asarray(measurement.feature_dimension),
         system_qubits=np.asarray(dilation.resources.system_qubits),

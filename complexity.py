@@ -48,24 +48,30 @@ def automatic_encoded_feature_count(
     max_tensor_dimension: int = 512,
     max_total_qubits: int = 7,
     minimum_feature_count: int = 2,
+    added_encoding_features: int = 0,
 ) -> int:
-    """Largest feature count that keeps all PGM representations executable.
+    """Largest *base* feature count that keeps all PGMs executable.
 
     The guard simultaneously bounds the explicit c-PGM tensor dimension and the
     qubits required by the reduced symmetric representation plus the outcome
-    register.  A caller can then fit a train-only dimensionality reduction when
-    this count is smaller than the raw dataset dimension.
+    register. added_encoding_features reserves coordinates introduced after
+    preprocessing (one for the stereographic map). A caller can then fit a
+    train-only dimensionality reduction when this count is smaller than the raw
+    dataset dimension.
     """
 
     if min(raw_feature_count, copies, class_count) < 1:
         raise ValueError("Feature, copie e classi devono essere positive.")
     if max_tensor_dimension < 1 or max_total_qubits < 1:
         raise ValueError("I limiti automatici devono essere positivi.")
+    if added_encoding_features < 0:
+        raise ValueError("Le feature aggiunte dall'encoding non possono essere negative.")
     lower = min(raw_feature_count, max(1, minimum_feature_count))
     outcome_qubits = _qubits_for_dimension(class_count)
     for candidate in range(raw_feature_count, lower - 1, -1):
+        encoded_dimension = candidate + added_encoding_features
         tensor_dimension, symmetric_dimension = representation_dimensions(
-            candidate, copies
+            encoded_dimension, copies
         )
         total_qubits = (
             _qubits_for_dimension(symmetric_dimension) + outcome_qubits

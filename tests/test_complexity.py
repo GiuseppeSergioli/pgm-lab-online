@@ -55,6 +55,27 @@ class ComplexityTests(unittest.TestCase):
                 self.assertLessEqual(tensor, 512)
                 self.assertLessEqual(total_qubits, 7)
 
+    def test_budget_can_reserve_the_stereographic_coordinate(self) -> None:
+        for copies in range(1, 9):
+            base_features = automatic_encoded_feature_count(
+                30,
+                copies,
+                3,
+                max_tensor_dimension=512,
+                max_total_qubits=7,
+                minimum_feature_count=1,
+                added_encoding_features=1,
+            )
+            encoded_dimension = base_features + 1
+            tensor, symmetric = representation_dimensions(
+                encoded_dimension, copies
+            )
+            total_qubits = (symmetric - 1).bit_length() + (3 - 1).bit_length()
+            self.assertGreaterEqual(base_features, 1)
+            self.assertLessEqual(base_features, 30)
+            self.assertLessEqual(tensor, 512)
+            self.assertLessEqual(total_qubits, 7)
+
 
 if __name__ == "__main__":
     unittest.main()

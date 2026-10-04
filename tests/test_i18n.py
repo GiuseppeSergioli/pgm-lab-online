@@ -76,13 +76,17 @@ class InternationalizationTests(unittest.TestCase):
         intro = (
             "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
             "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, "
-            "prior, split e soglia spettrale. Dopo il training, l'app costruisce anche "
-            "il circuito quantistico della PGM mediante una dilatazione di Naimark."
+            "prior, split e soglia spettrale. Sul solo training set, l'app sceglie "
+            "automaticamente tra encoding in ampiezza normalizzato ed encoding "
+            "stereografico, ottimizzandone il fattore di rescaling. Dopo il training "
+            "finale costruisce anche il circuito quantistico della PGM mediante una "
+            "dilatazione di Naimark."
         )
         translated = translate_text(intro, "en")
         self.assertIn("Reproducible comparison", translated)
         self.assertIn("Naimark dilation", translated)
         self.assertNotIn("Confronto riproducibile", translated)
+        self.assertIn("automatically selects", translated)
 
     def test_dataframe_headers_index_and_text_cells_are_localized(self) -> None:
         frame = pd.DataFrame(
@@ -132,11 +136,25 @@ class InternationalizationTests(unittest.TestCase):
 
     def test_app_has_two_flags_and_no_internal_neumark_note(self) -> None:
         source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "4.9.0"', source)
+        self.assertIn('APP_VERSION = "5.0.0"', source)
         self.assertIn('"🇮🇹"', source)
         self.assertIn('"🇬🇧"', source)
         self.assertIn('LANGUAGE_SESSION_KEY = "pgm_interface_language"', source)
         self.assertNotIn("Neumark nel paper", source)
+
+    def test_automatic_encoding_labels_are_translated(self) -> None:
+        self.assertEqual(
+            translate_text("Encoding selezionato", "en"), "Selected encoding"
+        )
+        dynamic = (
+            "La scelta è stata effettuata esclusivamente sul training set mediante "
+            "3-fold stratificata sul training (120 campioni). Il test set non è "
+            "stato consultato."
+        )
+        translated = translate_text(dynamic, "en")
+        self.assertIn("training data exclusively", translated)
+        self.assertIn("120 samples", translated)
+        self.assertNotIn("consultato", translated)
 
 
 if __name__ == "__main__":
