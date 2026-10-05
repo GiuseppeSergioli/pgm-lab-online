@@ -136,7 +136,7 @@ class InternationalizationTests(unittest.TestCase):
 
     def test_app_has_two_flags_and_no_internal_neumark_note(self) -> None:
         source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "5.1.0"', source)
+        self.assertIn('APP_VERSION = "5.1.1"', source)
         self.assertIn('"🇮🇹"', source)
         self.assertIn('"🇬🇧"', source)
         self.assertIn('LANGUAGE_SESSION_KEY = "pgm_interface_language"', source)

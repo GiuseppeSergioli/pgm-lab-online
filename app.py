@@ -28,6 +28,7 @@ from sklearn.metrics import accuracy_score
 from classifier_benchmark import (
     CLASSIFIER_SPECS,
     METRIC_LABELS,
+    benchmark_raw_split,
     classification_metrics,
     fit_standard_classifier,
     get_classifier_spec,
@@ -249,7 +250,8 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "5.1.0"
+APP_VERSION = "5.1.1"
+EXPERIMENT_CACHE_SCHEMA = "5.1.1-raw-split"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -270,7 +272,10 @@ def execute_experiment(
     tensor_max_encoded_features: int | None,
     stereographic_max_encoded_features: int | None,
     scalable_full_features: bool,
+    cache_schema: str,
 ) -> dict:
+    if cache_schema != EXPERIMENT_CACHE_SCHEMA:
+        raise ValueError("Schema della cache dell'esperimento non riconosciuto.")
     return run_experiment(
         dataset_key,
         copies=copies,
@@ -1393,6 +1398,7 @@ if run_clicked:
                 tensor_base_feature_count,
                 stereographic_base_feature_count,
                 scalable_full_features,
+                EXPERIMENT_CACHE_SCHEMA,
             )
         st.session_state["last_pgm_run"] = {
             "configuration_key": configuration_key,
@@ -1476,12 +1482,24 @@ if comparison_enabled:
                     tensor_base_feature_count,
                     stereographic_base_feature_count,
                     scalable_full_features,
+                    EXPERIMENT_CACHE_SCHEMA,
+                )
+                (
+                    comparison_X_train_raw,
+                    comparison_y_train,
+                    comparison_X_test_raw,
+                    comparison_y_test,
+                ) = benchmark_raw_split(
+                    comparison_pgm_payload,
+                    dataset_key=selected_key,
+                    test_fraction=float(test_fraction),
+                    random_seed=int(random_seed),
                 )
                 standard_result = execute_standard_classifier(
-                    comparison_pgm_payload["X_train_raw"],
-                    comparison_pgm_payload["y_train"],
-                    comparison_pgm_payload["X_test_raw"],
-                    comparison_pgm_payload["y_test"],
+                    comparison_X_train_raw,
+                    comparison_y_train,
+                    comparison_X_test_raw,
+                    comparison_y_test,
                     classifier_key,
                     int(random_seed),
                     3,
@@ -1564,12 +1582,24 @@ if comparison_enabled:
                     full_tensor_features,
                     full_stereographic_features,
                     not quantum_ready_mode,
+                    EXPERIMENT_CACHE_SCHEMA,
+                )
+                (
+                    full_X_train_raw,
+                    full_y_train,
+                    full_X_test_raw,
+                    full_y_test,
+                ) = benchmark_raw_split(
+                    full_pgm_payload,
+                    dataset_key=binary_spec.key,
+                    test_fraction=float(test_fraction),
+                    random_seed=int(random_seed),
                 )
                 full_standard_result = execute_standard_classifier(
-                    full_pgm_payload["X_train_raw"],
-                    full_pgm_payload["y_train"],
-                    full_pgm_payload["X_test_raw"],
-                    full_pgm_payload["y_test"],
+                    full_X_train_raw,
+                    full_y_train,
+                    full_X_test_raw,
+                    full_y_test,
                     classifier_key,
                     int(random_seed),
                     2,

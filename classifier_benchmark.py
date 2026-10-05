@@ -33,7 +33,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
 from sklearn.naive_bayes import BernoulliNB, GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
@@ -168,6 +168,52 @@ METRIC_LABELS: dict[str, str] = {
     "matthews_corrcoef": "Coefficiente di Matthews",
     "roc_auc": "ROC-AUC macro",
 }
+
+
+def benchmark_raw_split(
+    payload: dict[str, Any],
+    *,
+    dataset_key: str,
+    test_fraction: float,
+    random_seed: int,
+) -> tuple[Any, np.ndarray, Any, np.ndarray]:
+    """Return the exact raw split, including compatibility with old cache entries.
+
+    Version 5.1 added raw frames to the experiment payload. Streamlit can retain a
+    payload created by an earlier version during a hot reload, so this function
+    reconstructs the deterministic split when those two fields are absent and
+    verifies its labels before it is used by a benchmark.
+    """
+
+    if "X_train_raw" in payload and "X_test_raw" in payload:
+        return (
+            payload["X_train_raw"],
+            np.asarray(payload["y_train"]),
+            payload["X_test_raw"],
+            np.asarray(payload["y_test"]),
+        )
+
+    from data_catalog import load_public_dataset
+
+    X_frame, y_series, _ = load_public_dataset(dataset_key)
+    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+        X_frame,
+        y_series.to_numpy(),
+        test_size=float(test_fraction),
+        random_state=int(random_seed),
+        stratify=y_series.to_numpy(),
+    )
+    expected_train = np.asarray(payload["y_train"])
+    expected_test = np.asarray(payload["y_test"])
+    if not (
+        np.array_equal(np.asarray(y_train), expected_train)
+        and np.array_equal(np.asarray(y_test), expected_test)
+    ):
+        raise RuntimeError(
+            "Impossibile ricostruire con certezza lo stesso split train/test "
+            "della PGM. Ricalcolare l'esperimento."
+        )
+    return X_train_raw, expected_train, X_test_raw, expected_test
 
 
 def get_classifier_spec(key: str) -> ClassifierSpec:

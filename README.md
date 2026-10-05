@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 5.1.0**
+**Versione 5.1.1**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -16,6 +16,15 @@ L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
 training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
 circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Correzione della versione 5.1.1
+
+- Il confronto invalida esplicitamente le cache di esperimenti create prima
+  dell'introduzione dei dati grezzi `X_train_raw` e `X_test_raw`.
+- Se Streamlit conserva comunque un risultato precedente durante un hot reload,
+  l'app ricostruisce deterministicamente lo stesso split train/test dai parametri
+  dell'esperimento e ne verifica le etichette prima del confronto. Questo elimina
+  il possibile errore `KeyError: 'X_train_raw'` senza cambiare predizioni o metriche.
 
 ## Novità della versione 5.1.0
 

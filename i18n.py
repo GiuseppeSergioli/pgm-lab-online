@@ -441,6 +441,16 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Le feature aggiunte dall'encoding non possono essere negative.": (
         "The number of features added by the encoding cannot be negative."
     ),
+    "Schema della cache dell'esperimento non riconosciuto.": (
+        "Unrecognized experiment-cache schema."
+    ),
+    (
+        "Impossibile ricostruire con certezza lo stesso split train/test della PGM. "
+        "Ricalcolare l'esperimento."
+    ): (
+        "The exact PGM train/test split could not be reconstructed safely. "
+        "Run the experiment again."
+    ),
 }
 
 
