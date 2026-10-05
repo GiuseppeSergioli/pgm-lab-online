@@ -136,11 +136,36 @@ class InternationalizationTests(unittest.TestCase):
 
     def test_app_has_two_flags_and_no_internal_neumark_note(self) -> None:
         source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "5.0.0"', source)
+        self.assertIn('APP_VERSION = "5.1.0"', source)
         self.assertIn('"🇮🇹"', source)
         self.assertIn('"🇬🇧"', source)
         self.assertIn('LANGUAGE_SESSION_KEY = "pgm_interface_language"', source)
         self.assertNotIn("Neumark nel paper", source)
+
+    def test_classifier_comparison_section_is_fully_translated(self) -> None:
+        intro = (
+            "Questa sezione è indipendente dal pulsante principale. Se la abiliti, "
+            "confronta la PGM con un classificatore standard sullo stesso split "
+            "train/test. Il modello standard viene ottimizzato con una ricerca compatta "
+            "sul solo training set; la balanced accuracy decide il confronto ed è "
+            "accompagnata da precision, recall, F1-score, Kappa di Cohen, coefficiente "
+            "di Matthews e ROC-AUC."
+        )
+        translated = translate_text(intro, "en")
+        self.assertIn("independent of the main run button", translated)
+        self.assertIn("training data only", translated)
+        self.assertNotIn("Questa sezione", translated)
+        self.assertEqual(
+            translate_text("3. Confronto con altri classificatori", "en"),
+            "3. Comparison with other classifiers",
+        )
+        self.assertEqual(
+            translate_text(
+                "Foresta di alberi con pesi bilanciati e aggregazione robusta.",
+                "en",
+            ),
+            "Tree ensemble with balanced weights and robust aggregation.",
+        )
 
     def test_automatic_encoding_labels_are_translated(self) -> None:
         self.assertEqual(

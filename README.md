@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 5.0.0**
+**Versione 5.1.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -16,6 +16,37 @@ L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
 training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
 circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Novità della versione 5.1.0
+
+- La nuova sezione opzionale **Confronto con altri classificatori** si trova tra
+  il controllo dimensionale e i risultati PGM. Non viene eseguita dal pulsante
+  principale: parte esclusivamente quando l'utente abilita la sezione e preme uno
+  dei suoi pulsanti.
+- La PGM con encoding e rescaling scelti automaticamente può essere confrontata
+  con 17 modelli: rete neurale/MLP, Random Forest, Bernoulli e Gaussian Naive
+  Bayes, k-NN, QDA, LDA, regressione logistica, Extra Tree, Extra Trees, SVM RBF
+  e lineare, HistGradientBoosting, Gradient Boosting, AdaBoost, Decision Tree e
+  Ridge Classifier.
+- Il confronto singolo usa esattamente lo stesso split train/test della PGM. Ogni
+  imputazione, scaling e ricerca degli iperparametri del concorrente è appresa
+  soltanto sul training set mediante una grid search compatta stratificata; il
+  test set viene valutato una sola volta.
+- Il riepilogo comprende balanced accuracy, accuracy, precision e recall macro,
+  F1 macro, Kappa di Cohen, coefficiente di Matthews e ROC-AUC macro, oltre a
+  grafico comparativo, matrici di confusione normalizzate, tempi e parametri
+  selezionati.
+- Il vincitore viene dichiarato soltanto se l'intervallo percentile al 95% di un
+  bootstrap stratificato e appaiato della differenza di balanced accuracy esclude
+  zero. In caso contrario il risultato è esplicitamente **TIE / non conclusivo**.
+- **Full comparison** applica la stessa procedura a tutti i dataset binari del
+  catalogo e produce matrice WIN/TIE/LOSS, riepilogo delle vittorie e grafico
+  delle differenze. Usa cache, due fold di tuning e bootstrap vettorializzato per
+  contenere i tempi; un eventuale errore di download su un dataset non interrompe
+  gli altri confronti.
+- Tutti i nuovi controlli, messaggi, tabelle e grafici sono disponibili sia in
+  italiano sia in inglese e conservano il layout responsivo sui dispositivi
+  mobili.
 
 ## Novità della versione 5.0.0
 

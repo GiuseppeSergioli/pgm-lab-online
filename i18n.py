@@ -131,6 +131,18 @@ EXACT_TRANSLATIONS: dict[str, str] = {
         "Run the classifiers (circuit not materialized)"
     ),
     "3. Risultati": "3. Results",
+    "3. Confronto con altri classificatori": (
+        "3. Comparison with other classifiers"
+    ),
+    "Abilita il confronto opzionale": "Enable optional comparison",
+    "Classificatore standard": "Standard classifier",
+    "Confronta sul dataset selezionato": (
+        "Compare on the selected dataset"
+    ),
+    "Full comparison sui dataset binari": (
+        "Full comparison on binary datasets"
+    ),
+    "4. Risultati PGM": "4. PGM results",
     "Varianza PCA conservata": "PCA variance retained",
     "100% (nessuna PCA)": "100% (no PCA)",
     "Campioni test": "Test samples",
@@ -145,6 +157,74 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "autovalore_minimo_grezzo": "raw_minimum_eigenvalue",
     "errore_massimo_norma_feature": "maximum_feature_norm_error",
     "4. Circuito quantistico della PGM": "4. PGM quantum circuit",
+    "5. Circuito quantistico della PGM": "5. PGM quantum circuit",
+    "Balanced accuracy": "Balanced accuracy",
+    "Precision macro": "Macro precision",
+    "Recall macro": "Macro recall",
+    "F1-score macro": "Macro F1-score",
+    "Kappa di Cohen": "Cohen's kappa",
+    "Coefficiente di Matthews": "Matthews correlation coefficient",
+    "ROC-AUC macro": "Macro ROC-AUC",
+    "Valore": "Value",
+    "Classificatore": "Classifier",
+    "Balanced accuracy PGM": "PGM balanced accuracy",
+    "Differenza PGM − confronto": "PGM − comparator difference",
+    "Intervallo bootstrap 95%": "95% bootstrap interval",
+    "Matrici di confusione e tuning del classificatore": (
+        "Confusion matrices and classifier tuning"
+    ),
+    "Fold di tuning": "Tuning folds",
+    "Balanced accuracy di validazione": "Validation balanced accuracy",
+    "Parametri selezionati": "Selected parameters",
+    "Tempo fit e tuning (s)": "Fit and tuning time (s)",
+    "Encoding PGM": "PGM encoding",
+    "Fattore t PGM": "PGM factor t",
+    "Configurazione predefinita": "Default configuration",
+    "Dataset completati": "Completed datasets",
+    "Vittorie PGM": "PGM wins",
+    "Pareggi / non conclusivi": "Ties / inconclusive",
+    "Pareggio": "Tie",
+    "Vincitore": "Winner",
+    "#### Matrice WIN / TIE / LOSS": "#### WIN / TIE / LOSS matrix",
+    "Risultati completi per dataset": "Complete results by dataset",
+    "Preparazione del full comparison...": "Preparing full comparison...",
+    "Full comparison completato.": "Full comparison completed.",
+    "Reti neurali": "Neural networks",
+    "Ensemble": "Ensemble",
+    "Bayesiani": "Bayesian",
+    "Vicinato": "Nearest-neighbor",
+    "Discriminanti": "Discriminant analysis",
+    "Lineari": "Linear",
+    "Alberi": "Trees",
+    "Kernel": "Kernel",
+    "Boosting": "Boosting",
+    "Rete neurale MLP": "MLP neural network",
+    "Random Forest": "Random Forest",
+    "Naive Bayes Bernoulli": "Bernoulli Naive Bayes",
+    "k-Nearest Neighbors": "k-Nearest Neighbors",
+    "Analisi discriminante quadratica (QDA)": (
+        "Quadratic Discriminant Analysis (QDA)"
+    ),
+    "Regressione logistica": "Logistic Regression",
+    "Extra Tree": "Extra Tree",
+    "Extra Trees (ensemble)": "Extra Trees (ensemble)",
+    "SVM con kernel RBF": "RBF-kernel SVM",
+    "SVM lineare": "Linear SVM",
+    "HistGradientBoosting": "HistGradientBoosting",
+    "Gradient Boosting": "Gradient Boosting",
+    "Analisi discriminante lineare (LDA)": (
+        "Linear Discriminant Analysis (LDA)"
+    ),
+    "Naive Bayes gaussiano": "Gaussian Naive Bayes",
+    "AdaBoost": "AdaBoost",
+    "Albero decisionale": "Decision Tree",
+    "Ridge Classifier": "Ridge Classifier",
+    "Metrica": "Metric",
+    "Tempo predizione (s)": "Prediction time (s)",
+    "Differenza balanced accuracy PGM − confronto (punti %)": (
+        "PGM − comparator balanced-accuracy difference (pp)"
+    ),
+    "**PGM — % per classe reale**": "**PGM — % by actual class**",
     "Dimensione ridotta": "Reduced dimension",
     "Qubit sistema": "System qubits",
     "Qubit esito": "Outcome qubits",
@@ -368,6 +448,21 @@ EXACT_TRANSLATIONS: dict[str, str] = {
 # here preserves equations and formatting while providing natural English prose.
 NORMALIZED_TRANSLATIONS: dict[str, str] = {
     (
+        "Questa sezione è indipendente dal pulsante principale. Se la abiliti, "
+        "confronta la PGM con un classificatore standard sullo stesso split "
+        "train/test. Il modello standard viene ottimizzato con una ricerca compatta "
+        "sul solo training set; la balanced accuracy decide il confronto ed è "
+        "accompagnata da precision, recall, F1-score, Kappa di Cohen, coefficiente "
+        "di Matthews e ROC-AUC."
+    ): (
+        "This section is independent of the main run button. When enabled, it "
+        "compares the PGM with a standard classifier on the same train/test split. "
+        "The standard model is tuned with a compact search using training data only; "
+        "balanced accuracy is the primary comparison metric, accompanied by "
+        "precision, recall, F1-score, Cohen's kappa, Matthews correlation coefficient, "
+        "and ROC-AUC."
+    ),
+    (
         "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
         "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, prior, "
         "split e soglia spettrale. Sul solo training set, l'app sceglie automaticamente "
@@ -430,6 +525,49 @@ NORMALIZED_TRANSLATIONS: dict[str, str] = {
 # class labels, or backend names are only known at runtime.  Longer fragments are
 # applied first to prevent partial replacements.
 PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
+    ("Nel confronto, PGM indica la configurazione scelta automaticamente sul training set (encoding e, se applicabile, fattore t). c-PGM, k-PGM e r-PGM hanno la stessa decisione teorica; per le metriche viene usata k-PGM.", "In this comparison, PGM denotes the configuration selected automatically on the training set (encoding and, when applicable, factor t). c-PGM, k-PGM, and r-PGM have the same theoretical decision; k-PGM is used to compute the metrics."),
+    ("· PGM equivalenti, benchmark statistici e integrazione quantistica protetta", "· equivalent PGMs, statistical benchmarks, and protected quantum integration"),
+    ("Multi-Layer Perceptron feed-forward con regolarizzazione.", "Regularized feed-forward Multi-Layer Perceptron."),
+    ("Foresta di alberi con pesi bilanciati e aggregazione robusta.", "Tree ensemble with balanced weights and robust aggregation."),
+    ("Modello bayesiano su feature binarizzate dopo scaling train-only.", "Bayesian model on features binarized after train-only scaling."),
+    ("Classificazione per vicinato con distanze standardizzate.", "Nearest-neighbor classification with standardized distances."),
+    ("Frontiere quadratiche con regolarizzazione della covarianza.", "Quadratic decision boundaries with covariance regularization."),
+    ("Modello lineare probabilistico con bilanciamento delle classi.", "Probabilistic linear model with class balancing."),
+    ("Singolo albero estremamente randomizzato.", "Single extremely randomized tree."),
+    ("Ensemble di alberi estremamente randomizzati.", "Ensemble of extremely randomized trees."),
+    ("Support Vector Machine non lineare con kernel gaussiano.", "Nonlinear Support Vector Machine with a Gaussian kernel."),
+    ("Support Vector Machine lineare con classi bilanciate.", "Linear Support Vector Machine with balanced classes."),
+    ("Boosting istogrammico rapido con regolarizzazione.", "Fast regularized histogram-based boosting."),
+    ("Boosting classico di alberi decisionali.", "Classic decision-tree boosting."),
+    ("Discriminante lineare con shrinkage della covarianza.", "Linear discriminant analysis with covariance shrinkage."),
+    ("Baseline probabilistica gaussiana veloce.", "Fast Gaussian probabilistic baseline."),
+    ("Ensemble adattivo di classificatori deboli.", "Adaptive ensemble of weak classifiers."),
+    ("Albero CART con bilanciamento delle classi.", "CART tree with class balancing."),
+    ("Classificatore lineare regolarizzato, rapido e stabile.", "Fast, stable regularized linear classifier."),
+    ("Nessun benchmark viene eseguito finché non abiliti questa sezione e premi uno dei due pulsanti.", "No benchmark runs until you enable this section and press one of its two buttons."),
+    ("Il confronto sul dataset corrente usa fino a 3 fold di tuning. Il full comparison usa 2 fold per contenere i tempi e include tutti i dataset binari del catalogo; i download OpenML sono memorizzati in cache.", "The current-dataset comparison uses up to 3 tuning folds. The full comparison uses 2 folds to limit runtime and includes every binary dataset in the catalogue; OpenML downloads are cached."),
+    ("Training della PGM, tuning del classificatore e bootstrap appaiato in corso...", "Training the PGM, tuning the classifier, and running the paired bootstrap..."),
+    ("Le impostazioni del confronto sono cambiate: premi il pulsante per calcolare il nuovo caso.", "Comparison settings have changed; press the button to compute the new case."),
+    ("Le impostazioni del full comparison sono cambiate: premi il pulsante per ricalcolarlo.", "Full-comparison settings have changed; press the button to recompute it."),
+    ("Vincitore: PGM su", "Winner: PGM on"),
+    ("Vincitore:", "Winner:"),
+    ("L'intervallo bootstrap appaiato della differenza di balanced accuracy è interamente positivo.", "The paired bootstrap interval for the balanced-accuracy difference is entirely positive."),
+    ("L'intervallo bootstrap appaiato della differenza di balanced accuracy è interamente negativo.", "The paired bootstrap interval for the balanced-accuracy difference is entirely negative."),
+    ("Confronto non conclusivo su", "Inconclusive comparison on"),
+    ("l'intervallo bootstrap della differenza include zero, quindi non viene dichiarato un vincitore.", "the bootstrap interval for the difference includes zero, so no winner is declared."),
+    ("Il vincitore è dichiarato soltanto quando l'intervallo bootstrap stratificato e appaiato al 95% non include zero. Tutte le metriche sono calcolate sul medesimo test set, mai usato per il tuning.", "A winner is declared only when the paired stratified 95% bootstrap interval excludes zero. Every metric is computed on the same test set, which is never used for tuning."),
+    ("WIN o LOSS sono assegnati soltanto quando l'intervallo bootstrap appaiato al 95% della differenza di balanced accuracy esclude zero; negli altri casi il risultato è TIE.", "WIN or LOSS is assigned only when the paired 95% bootstrap interval for the balanced-accuracy difference excludes zero; otherwise the result is TIE."),
+    ("Il full comparison non ha prodotto risultati utilizzabili. Consulta i dettagli degli errori.", "The full comparison produced no usable results. Review the error details."),
+    ("Dataset non completati", "Datasets not completed"),
+    ("Vittorie", "Wins"),
+    ("Classificatore sconosciuto:", "Unknown classifier:"),
+    ("Catalogo dei classificatori incoerente.", "Inconsistent classifier catalogue."),
+    ("Nessuna configurazione ha prodotto una validazione finita.", "No configuration produced a finite validation score."),
+    ("Tuning non disponibile; usata la configurazione robusta predefinita. Dettaglio:", "Tuning was unavailable; the robust default configuration was used. Details:"),
+    ("Tuning disattivato perché una classe ha troppo pochi campioni nel training; usata la configurazione robusta predefinita.", "Tuning was disabled because one class has too few training samples; the robust default configuration was used."),
+    ("Il bootstrap richiede almeno 100 ricampionamenti.", "Bootstrap requires at least 100 resamples."),
+    ("Il livello di confidenza deve essere tra 0.5 e 1.", "The confidence level must be between 0.5 and 1."),
+    ("Le predizioni da confrontare devono avere la stessa forma.", "The predictions being compared must have the same shape."),
     ("· classificatori equivalenti, circuito completo e integrazione quantistica protetta", "· equivalent classifiers, full circuit, and protected quantum integration"),
     ("La distanza è la total variation distance fra frequenze osservate e probabilità teoriche: valori più vicini a zero indicano maggiore accordo.", "The distance is the total variation distance between observed frequencies and theoretical probabilities: values closer to zero indicate better agreement."),
     ("È un limite di sicurezza dell'app, non aumenta la RAM fisicamente disponibile sul server.", "This is an app safety limit; it does not increase the RAM physically available on the server."),

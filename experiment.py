@@ -538,6 +538,8 @@ def run_experiment(
         "y_train": np.asarray(y_train),
         "X_train_encoded": X_train,
         "X_test_encoded": X_test,
+        "X_train_raw": X_train_raw.copy(),
+        "X_test_raw": X_test_raw.copy(),
         "source_used": source_used,
         "n_total": int(X_frame.shape[0]),
         "raw_d": int(X_frame.shape[1]),

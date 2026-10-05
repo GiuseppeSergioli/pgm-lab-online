@@ -25,6 +25,14 @@ import pandas as pd
 import streamlit as _st
 from sklearn.metrics import accuracy_score
 
+from classifier_benchmark import (
+    CLASSIFIER_SPECS,
+    METRIC_LABELS,
+    classification_metrics,
+    fit_standard_classifier,
+    get_classifier_spec,
+    paired_balanced_accuracy_bootstrap,
+)
 from complexity import (
     automatic_encoded_feature_count,
     human_bytes,
@@ -241,7 +249,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "5.0.0"
+APP_VERSION = "5.1.0"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -251,7 +259,7 @@ AUTO_MAX_TOTAL_QUBITS = 7
 SCALABLE_EXPLICIT_DIMENSION_LIMIT = 512
 
 
-@st.cache_data(show_spinner=False, max_entries=12)
+@st.cache_data(show_spinner=False, max_entries=24)
 def execute_experiment(
     dataset_key: str,
     copies: int,
@@ -275,6 +283,109 @@ def execute_experiment(
         scalable_full_features=scalable_full_features,
         explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
     )
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def execute_standard_classifier(
+    X_train_raw,
+    y_train: np.ndarray,
+    X_test_raw,
+    y_test: np.ndarray,
+    classifier_key: str,
+    random_seed: int,
+    requested_tuning_folds: int,
+) -> dict:
+    return fit_standard_classifier(
+        X_train_raw,
+        y_train,
+        X_test_raw,
+        y_test,
+        classifier_key=classifier_key,
+        random_seed=random_seed,
+        requested_tuning_folds=requested_tuning_folds,
+    )
+
+
+def encoding_feature_limits(
+    *,
+    raw_feature_count: int,
+    copies: int,
+    class_count: int,
+    quantum_ready: bool,
+) -> tuple[int, int]:
+    """Return base dimensions for amplitude and stereographic candidates."""
+
+    if not quantum_ready:
+        return raw_feature_count, raw_feature_count
+    amplitude_features = automatic_encoded_feature_count(
+        raw_feature_count,
+        copies,
+        class_count,
+        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
+        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
+    )
+    stereographic_features = automatic_encoded_feature_count(
+        raw_feature_count,
+        copies,
+        class_count,
+        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
+        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
+        minimum_feature_count=1,
+        added_encoding_features=1,
+    )
+    return amplitude_features, stereographic_features
+
+
+def pgm_benchmark_metrics(payload: dict) -> dict[str, float]:
+    classes = np.unique(payload["y_train"])
+    result = payload["results"]["k-PGM"]
+    return classification_metrics(
+        payload["y_test"],
+        result.predictions,
+        classes=classes,
+        scores=result.scores,
+    )
+
+
+def compact_comparison_result(
+    payload: dict,
+    standard_result: dict,
+    *,
+    bootstrap_resamples: int,
+    random_seed: int,
+) -> dict:
+    pgm_result = payload["results"]["k-PGM"]
+    bootstrap = paired_balanced_accuracy_bootstrap(
+        payload["y_test"],
+        pgm_result.predictions,
+        standard_result["predictions"],
+        resamples=bootstrap_resamples,
+        random_seed=random_seed,
+    )
+    return {
+        "pgm_metrics": pgm_benchmark_metrics(payload),
+        "standard_metrics": standard_result["metrics"],
+        "bootstrap": bootstrap,
+        "y_test": payload["y_test"],
+        "y_train": payload["y_train"],
+        "pgm_predictions": pgm_result.predictions,
+        "standard_predictions": standard_result["predictions"],
+        "classifier_key": standard_result["classifier_key"],
+        "classifier_name": standard_result["classifier_name"],
+        "best_parameters": standard_result["best_parameters"],
+        "tuning_folds": standard_result["tuning_folds"],
+        "validation_balanced_accuracy": standard_result[
+            "validation_balanced_accuracy"
+        ],
+        "tuning_message": standard_result["tuning_message"],
+        "fit_seconds": standard_result["fit_seconds"],
+        "predict_seconds": standard_result["predict_seconds"],
+        "encoding": payload["encoding"],
+        "rescaling_factor": payload["rescaling_factor"],
+        "base_d": payload["base_d"],
+        "d": payload["d"],
+        "source_used": payload["source_used"],
+    }
 
 
 @st.cache_resource(show_spinner=False, max_entries=6)
@@ -531,6 +642,412 @@ def render_execution_result(
     )
 
 
+def render_classifier_comparison(
+    comparison: dict,
+    *,
+    dataset_display_name: str,
+) -> None:
+    dataset_display_name = translate_text(
+        dataset_display_name, current_language()
+    )
+    competitor_name = translate_text(
+        comparison["classifier_name"], current_language()
+    )
+    bootstrap = comparison["bootstrap"]
+    if bootstrap["winner"] == "pgm":
+        st.success(
+            f"Vincitore: PGM su {dataset_display_name}. L'intervallo bootstrap "
+            "appaiato della differenza di balanced accuracy è interamente positivo."
+        )
+    elif bootstrap["winner"] == "competitor":
+        st.success(
+            f"Vincitore: {competitor_name} su {dataset_display_name}. L'intervallo "
+            "bootstrap appaiato della differenza di balanced accuracy è interamente "
+            "negativo."
+        )
+    else:
+        st.info(
+            f"Confronto non conclusivo su {dataset_display_name}: l'intervallo "
+            "bootstrap della differenza include zero, quindi non viene dichiarato "
+            "un vincitore."
+        )
+
+    summary_columns = st.columns(4)
+    summary_columns[0].metric(
+        "Balanced accuracy PGM",
+        f"{100.0 * bootstrap['pgm_balanced_accuracy']:.2f}%",
+    )
+    summary_columns[1].metric(
+        f"Balanced accuracy {competitor_name}",
+        f"{100.0 * bootstrap['competitor_balanced_accuracy']:.2f}%",
+    )
+    summary_columns[2].metric(
+        "Differenza PGM − confronto",
+        f"{100.0 * bootstrap['difference']:+.2f} punti %",
+    )
+    summary_columns[3].metric(
+        "Intervallo bootstrap 95%",
+        (
+            f"[{100.0 * bootstrap['confidence_lower']:+.2f}, "
+            f"{100.0 * bootstrap['confidence_upper']:+.2f}] punti %"
+        ),
+    )
+    st.caption(
+        "Il vincitore è dichiarato soltanto quando l'intervallo bootstrap "
+        "stratificato e appaiato al 95% non include zero. Tutte le metriche sono "
+        "calcolate sul medesimo test set, mai usato per il tuning."
+    )
+
+    metric_rows: list[dict] = []
+    chart_rows: list[dict] = []
+    for metric_key, metric_label in METRIC_LABELS.items():
+        pgm_value = comparison["pgm_metrics"].get(metric_key, float("nan"))
+        standard_value = comparison["standard_metrics"].get(
+            metric_key, float("nan")
+        )
+        difference = pgm_value - standard_value
+        metric_rows.append(
+            {
+                "Metrica": metric_label,
+                "PGM": (
+                    f"{pgm_value:.4f}" if np.isfinite(pgm_value) else "—"
+                ),
+                competitor_name: (
+                    f"{standard_value:.4f}"
+                    if np.isfinite(standard_value)
+                    else "—"
+                ),
+                "Differenza PGM − confronto": (
+                    f"{difference:+.4f}"
+                    if np.isfinite(difference)
+                    else "—"
+                ),
+            }
+        )
+        for classifier_name, value in (
+            ("PGM", pgm_value),
+            (competitor_name, standard_value),
+        ):
+            if np.isfinite(value):
+                chart_rows.append(
+                    {
+                        "metric": translate_text(
+                            metric_label, current_language()
+                        ),
+                        "classifier": translate_text(
+                            classifier_name, current_language()
+                        ),
+                        "value": float(value),
+                    }
+                )
+
+    st.dataframe(
+        pd.DataFrame(metric_rows),
+        hide_index=True,
+        width="stretch",
+    )
+    st.vega_lite_chart(
+        pd.DataFrame(chart_rows),
+        {
+            "mark": {"type": "bar", "cornerRadiusEnd": 4},
+            "encoding": {
+                "x": {
+                    "field": "metric",
+                    "type": "nominal",
+                    "title": None,
+                    "axis": {"labelAngle": -30},
+                },
+                "xOffset": {"field": "classifier"},
+                "y": {
+                    "field": "value",
+                    "type": "quantitative",
+                    "title": translate_text("Valore", current_language()),
+                },
+                "color": {
+                    "field": "classifier",
+                    "type": "nominal",
+                    "title": translate_text(
+                        "Classificatore", current_language()
+                    ),
+                    "scale": {
+                        "range": ["#6F42C1", "#00A6A6"],
+                    },
+                },
+                "tooltip": [
+                    {
+                        "field": "metric",
+                        "type": "nominal",
+                        "title": translate_text("Metrica", current_language()),
+                    },
+                    {
+                        "field": "classifier",
+                        "type": "nominal",
+                        "title": translate_text(
+                            "Classificatore", current_language()
+                        ),
+                    },
+                    {
+                        "field": "value",
+                        "type": "quantitative",
+                        "format": ".4f",
+                        "title": translate_text("Valore", current_language()),
+                    },
+                ],
+            },
+            "height": 330,
+        },
+        width="stretch",
+    )
+
+    classes = np.unique(comparison["y_train"])
+    _, pgm_percentages = confusion_frames(
+        comparison["y_test"],
+        comparison["pgm_predictions"],
+        classes,
+    )
+    _, standard_percentages = confusion_frames(
+        comparison["y_test"],
+        comparison["standard_predictions"],
+        classes,
+    )
+    with st.expander(
+        "Matrici di confusione e tuning del classificatore", expanded=False
+    ):
+        confusion_columns = st.columns(2)
+        with confusion_columns[0]:
+            st.markdown("**PGM — % per classe reale**")
+            st.dataframe(
+                pgm_percentages.map(lambda value: f"{value:.1f}%"),
+                width="stretch",
+            )
+        with confusion_columns[1]:
+            st.markdown(f"**{competitor_name} — % per classe reale**")
+            st.dataframe(
+                standard_percentages.map(lambda value: f"{value:.1f}%"),
+                width="stretch",
+            )
+        st.write(
+            {
+                "Fold di tuning": comparison["tuning_folds"],
+                "Balanced accuracy di validazione": (
+                    comparison["validation_balanced_accuracy"]
+                    if comparison["validation_balanced_accuracy"] is not None
+                    else "Non disponibile"
+                ),
+                "Parametri selezionati": (
+                    comparison["best_parameters"]
+                    if comparison["best_parameters"]
+                    else "Configurazione predefinita"
+                ),
+                "Tempo fit e tuning (s)": comparison["fit_seconds"],
+                "Tempo predizione (s)": comparison["predict_seconds"],
+                "Encoding PGM": (
+                    "Stereografico + encoding in ampiezza"
+                    if comparison["encoding"] == "stereographic"
+                    else "Encoding in ampiezza normalizzato"
+                ),
+                "Fattore t PGM": (
+                    comparison["rescaling_factor"]
+                    if comparison["rescaling_factor"] is not None
+                    else "Non applicabile"
+                ),
+            }
+        )
+        if comparison["tuning_message"]:
+            st.warning(comparison["tuning_message"])
+
+
+def render_full_binary_comparison(
+    rows: list[dict],
+    *,
+    competitor_name: str,
+) -> None:
+    competitor_name = translate_text(
+        competitor_name, current_language()
+    )
+    tie_label = translate_text("Pareggio", current_language())
+    successful = [row for row in rows if not row.get("error")]
+    failed = [row for row in rows if row.get("error")]
+    if not successful:
+        st.error(
+            "Il full comparison non ha prodotto risultati utilizzabili. "
+            "Consulta i dettagli degli errori."
+        )
+        if failed:
+            st.dataframe(pd.DataFrame(failed), hide_index=True, width="stretch")
+        return
+
+    win_count = sum(row["winner"] == "pgm" for row in successful)
+    loss_count = sum(row["winner"] == "competitor" for row in successful)
+    tie_count = sum(row["winner"] == "tie" for row in successful)
+    aggregate_columns = st.columns(4)
+    aggregate_columns[0].metric("Dataset completati", len(successful))
+    aggregate_columns[1].metric("Vittorie PGM", win_count)
+    aggregate_columns[2].metric(f"Vittorie {competitor_name}", loss_count)
+    aggregate_columns[3].metric("Pareggi / non conclusivi", tie_count)
+
+    matrix_records = []
+    detail_records = []
+    chart_records = []
+    for row in successful:
+        dataset_name = translate_text(row["dataset"], current_language())
+        if row["winner"] == "pgm":
+            pgm_cell, competitor_cell, outcome = "WIN", "LOSS", "PGM"
+        elif row["winner"] == "competitor":
+            pgm_cell, competitor_cell, outcome = (
+                "LOSS",
+                "WIN",
+                competitor_name,
+            )
+        else:
+            pgm_cell, competitor_cell, outcome = "TIE", "TIE", tie_label
+        matrix_records.append(
+            {
+                "Dataset": dataset_name,
+                "PGM": pgm_cell,
+                competitor_name: competitor_cell,
+            }
+        )
+        detail_records.append(
+            {
+                "Dataset": dataset_name,
+                "Balanced accuracy PGM": (
+                    f"{100.0 * row['pgm_balanced_accuracy']:.2f}%"
+                ),
+                f"Balanced accuracy {competitor_name}": (
+                    f"{100.0 * row['competitor_balanced_accuracy']:.2f}%"
+                ),
+                "Differenza PGM − confronto": (
+                    f"{100.0 * row['difference']:+.2f} punti %"
+                ),
+                "Intervallo bootstrap 95%": (
+                    f"[{100.0 * row['confidence_lower']:+.2f}, "
+                    f"{100.0 * row['confidence_upper']:+.2f}] punti %"
+                ),
+                "Vincitore": outcome,
+                "Encoding PGM": (
+                    "Stereografico + encoding in ampiezza"
+                    if row["encoding"] == "stereographic"
+                    else "Encoding in ampiezza normalizzato"
+                ),
+                "Fattore t PGM": (
+                    "—"
+                    if row["rescaling_factor"] is None
+                    else f"{row['rescaling_factor']:g}"
+                ),
+            }
+        )
+        chart_records.append(
+            {
+                "dataset": dataset_name,
+                "delta": 100.0 * row["difference"],
+                "outcome": outcome,
+            }
+        )
+
+    st.markdown("#### Matrice WIN / TIE / LOSS")
+    matrix = pd.DataFrame(matrix_records).set_index("Dataset")
+    matrix.index.name = translate_text("Dataset", current_language())
+
+    def matrix_color(value):
+        if value == "WIN":
+            return "background-color: #d9f2e6; color: #155d3a; font-weight: 700"
+        if value == "LOSS":
+            return "background-color: #fde2e2; color: #8a1c1c; font-weight: 700"
+        return "background-color: #edf1f7; color: #42526b; font-weight: 700"
+
+    st.dataframe(matrix.style.map(matrix_color), width="stretch")
+    st.caption(
+        "WIN o LOSS sono assegnati soltanto quando l'intervallo bootstrap "
+        "appaiato al 95% della differenza di balanced accuracy esclude zero; "
+        "negli altri casi il risultato è TIE."
+    )
+
+    outcome_domain = [
+        "PGM",
+        competitor_name,
+        tie_label,
+    ]
+    st.vega_lite_chart(
+        pd.DataFrame(chart_records),
+        {
+            "mark": {"type": "bar", "cornerRadiusEnd": 4},
+            "encoding": {
+                "y": {
+                    "field": "dataset",
+                    "type": "nominal",
+                    "sort": "-x",
+                    "title": None,
+                },
+                "x": {
+                    "field": "delta",
+                    "type": "quantitative",
+                    "title": translate_text(
+                        "Differenza balanced accuracy PGM − confronto (punti %)",
+                        current_language(),
+                    ),
+                },
+                "color": {
+                    "field": "outcome",
+                    "type": "nominal",
+                    "title": translate_text("Vincitore", current_language()),
+                    "scale": {
+                        "domain": outcome_domain,
+                        "range": ["#6F42C1", "#00A6A6", "#90A4AE"],
+                    },
+                },
+                "tooltip": [
+                    {
+                        "field": "dataset",
+                        "type": "nominal",
+                        "title": translate_text("Dataset", current_language()),
+                    },
+                    {
+                        "field": "delta",
+                        "type": "quantitative",
+                        "format": "+.2f",
+                        "title": translate_text(
+                            "Differenza PGM − confronto", current_language()
+                        ),
+                    },
+                    {
+                        "field": "outcome",
+                        "type": "nominal",
+                        "title": translate_text(
+                            "Vincitore", current_language()
+                        ),
+                    },
+                ],
+            },
+            "height": max(320, 28 * len(successful)),
+        },
+        width="stretch",
+    )
+    with st.expander("Risultati completi per dataset", expanded=False):
+        st.dataframe(
+            pd.DataFrame(detail_records),
+            hide_index=True,
+            width="stretch",
+        )
+    if failed:
+        with st.expander(
+            f"Dataset non completati ({len(failed)})", expanded=False
+        ):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Dataset": row["dataset"],
+                            "Errore": row["error"],
+                        }
+                        for row in failed
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+
+
 def render_language_selector() -> None:
     """Render the two explicit language flags without affecting scientific state."""
 
@@ -565,7 +1082,7 @@ def render_language_selector() -> None:
 render_language_selector()
 st.title("PGM Lab")
 st.caption(
-    f"Versione {APP_VERSION} · classificatori equivalenti, circuito completo e "
+    f"Versione {APP_VERSION} · PGM equivalenti, benchmark statistici e "
     "integrazione quantistica protetta"
 )
 st.write(
@@ -697,26 +1214,16 @@ with st.expander("Impostazioni avanzate", expanded=False):
     )
 
 spec = get_dataset_spec(selected_key)
-if feature_mode.startswith("Automatica"):
-    tensor_base_feature_count = automatic_encoded_feature_count(
-        spec.features,
-        copies,
-        spec.classes,
-        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
-        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
-    )
-    stereographic_base_feature_count = automatic_encoded_feature_count(
-        spec.features,
-        copies,
-        spec.classes,
-        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
-        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
-        minimum_feature_count=1,
-        added_encoding_features=1,
-    )
-else:
-    tensor_base_feature_count = spec.features
-    stereographic_base_feature_count = spec.features
+quantum_ready_mode = feature_mode.startswith("Automatica")
+(
+    tensor_base_feature_count,
+    stereographic_base_feature_count,
+) = encoding_feature_limits(
+    raw_feature_count=spec.features,
+    copies=copies,
+    class_count=spec.classes,
+    quantum_ready=quantum_ready_mode,
+)
 
 # The stereographic map adds one coordinate.  Resource previews use the larger
 # candidate dimension, so whichever encoding wins can be executed safely.
@@ -894,6 +1401,249 @@ if run_clicked:
     except Exception as error:
         st.exception(error)
 
+st.subheader("3. Confronto con altri classificatori")
+st.write(
+    "Questa sezione è indipendente dal pulsante principale. Se la abiliti, confronta "
+    "la PGM con un classificatore standard sullo stesso split train/test. Il modello "
+    "standard viene ottimizzato con una ricerca compatta sul solo training set; la "
+    "balanced accuracy decide il confronto ed è accompagnata da precision, recall, "
+    "F1-score, Kappa di Cohen, coefficiente di Matthews e ROC-AUC."
+)
+st.caption(
+    "Nel confronto, PGM indica la configurazione scelta automaticamente sul "
+    "training set (encoding e, se applicabile, fattore t). c-PGM, k-PGM e r-PGM "
+    "hanno la stessa decisione teorica; per le metriche viene usata k-PGM."
+)
+comparison_enabled = st.toggle(
+    "Abilita il confronto opzionale",
+    value=False,
+    key="standard_comparison_enabled",
+    help=(
+        "Nessun benchmark viene eseguito finché non abiliti questa sezione e premi "
+        "uno dei due pulsanti."
+    ),
+)
+
+if comparison_enabled:
+    classifier_key = st.selectbox(
+        "Classificatore standard",
+        options=[candidate.key for candidate in CLASSIFIER_SPECS],
+        index=1,
+        key="standard_classifier_choice",
+        format_func=lambda key: (
+            f"{translate_text(get_classifier_spec(key).display_name, current_language())} · "
+            f"{translate_text(get_classifier_spec(key).family, current_language())}"
+        ),
+    )
+    classifier_spec = get_classifier_spec(classifier_key)
+    st.caption(classifier_spec.description)
+    st.info(
+        "Il confronto sul dataset corrente usa fino a 3 fold di tuning. Il full "
+        "comparison usa 2 fold per contenere i tempi e include tutti i dataset "
+        "binari del catalogo; i download OpenML sono memorizzati in cache."
+    )
+    comparison_actions = st.columns(2)
+    compare_current_clicked = comparison_actions[0].button(
+        "Confronta sul dataset selezionato",
+        key="run_selected_dataset_comparison",
+        type="primary",
+        width="stretch",
+    )
+    full_comparison_clicked = comparison_actions[1].button(
+        "Full comparison sui dataset binari",
+        key="run_full_binary_comparison",
+        width="stretch",
+    )
+
+    selected_comparison_key = (
+        configuration_key,
+        classifier_key,
+        3,
+    )
+    if compare_current_clicked:
+        try:
+            with st.spinner(
+                "Training della PGM, tuning del classificatore e bootstrap "
+                "appaiato in corso..."
+            ):
+                comparison_pgm_payload = execute_experiment(
+                    selected_key,
+                    copies,
+                    float(test_fraction),
+                    int(random_seed),
+                    PRIOR_LABELS[prior_label],
+                    10.0 ** (-int(tolerance_exponent)),
+                    tensor_base_feature_count,
+                    stereographic_base_feature_count,
+                    scalable_full_features,
+                )
+                standard_result = execute_standard_classifier(
+                    comparison_pgm_payload["X_train_raw"],
+                    comparison_pgm_payload["y_train"],
+                    comparison_pgm_payload["X_test_raw"],
+                    comparison_pgm_payload["y_test"],
+                    classifier_key,
+                    int(random_seed),
+                    3,
+                )
+                selected_comparison = compact_comparison_result(
+                    comparison_pgm_payload,
+                    standard_result,
+                    bootstrap_resamples=2_000,
+                    random_seed=int(random_seed),
+                )
+            st.session_state["selected_classifier_comparison"] = {
+                "key": selected_comparison_key,
+                "comparison": selected_comparison,
+            }
+        except Exception as error:
+            st.exception(error)
+
+    saved_comparison = st.session_state.get(
+        "selected_classifier_comparison"
+    )
+    if (
+        saved_comparison
+        and saved_comparison["key"] == selected_comparison_key
+    ):
+        render_classifier_comparison(
+            saved_comparison["comparison"],
+            dataset_display_name=spec.display_name,
+        )
+    elif saved_comparison:
+        st.info(
+            "Le impostazioni del confronto sono cambiate: premi il pulsante per "
+            "calcolare il nuovo caso."
+        )
+
+    binary_specs = [dataset for dataset in DATASETS if dataset.classes == 2]
+    full_comparison_key = (
+        classifier_key,
+        copies,
+        feature_mode,
+        float(test_fraction),
+        int(random_seed),
+        PRIOR_LABELS[prior_label],
+        int(tolerance_exponent),
+    )
+    if full_comparison_clicked:
+        full_rows: list[dict] = []
+        progress = st.progress(
+            0.0,
+            text=translate_text(
+                "Preparazione del full comparison...",
+                current_language(),
+            ),
+        )
+        for dataset_index, binary_spec in enumerate(binary_specs, start=1):
+            progress.progress(
+                (dataset_index - 1) / len(binary_specs),
+                text=translate_text(
+                    f"Dataset {dataset_index}/{len(binary_specs)}: "
+                    f"{translate_text(binary_spec.display_name, current_language())}",
+                    current_language(),
+                ),
+            )
+            try:
+                (
+                    full_tensor_features,
+                    full_stereographic_features,
+                ) = encoding_feature_limits(
+                    raw_feature_count=binary_spec.features,
+                    copies=copies,
+                    class_count=binary_spec.classes,
+                    quantum_ready=quantum_ready_mode,
+                )
+                full_pgm_payload = execute_experiment(
+                    binary_spec.key,
+                    copies,
+                    float(test_fraction),
+                    int(random_seed),
+                    PRIOR_LABELS[prior_label],
+                    10.0 ** (-int(tolerance_exponent)),
+                    full_tensor_features,
+                    full_stereographic_features,
+                    not quantum_ready_mode,
+                )
+                full_standard_result = execute_standard_classifier(
+                    full_pgm_payload["X_train_raw"],
+                    full_pgm_payload["y_train"],
+                    full_pgm_payload["X_test_raw"],
+                    full_pgm_payload["y_test"],
+                    classifier_key,
+                    int(random_seed),
+                    2,
+                )
+                full_case = compact_comparison_result(
+                    full_pgm_payload,
+                    full_standard_result,
+                    bootstrap_resamples=750,
+                    random_seed=int(random_seed),
+                )
+                full_bootstrap = full_case["bootstrap"]
+                full_rows.append(
+                    {
+                        "dataset": binary_spec.display_name,
+                        "dataset_key": binary_spec.key,
+                        "pgm_balanced_accuracy": full_bootstrap[
+                            "pgm_balanced_accuracy"
+                        ],
+                        "competitor_balanced_accuracy": full_bootstrap[
+                            "competitor_balanced_accuracy"
+                        ],
+                        "difference": full_bootstrap["difference"],
+                        "confidence_lower": full_bootstrap[
+                            "confidence_lower"
+                        ],
+                        "confidence_upper": full_bootstrap[
+                            "confidence_upper"
+                        ],
+                        "winner": full_bootstrap["winner"],
+                        "encoding": full_case["encoding"],
+                        "rescaling_factor": full_case[
+                            "rescaling_factor"
+                        ],
+                        "error": "",
+                    }
+                )
+            except Exception as error:
+                full_rows.append(
+                    {
+                        "dataset": binary_spec.display_name,
+                        "dataset_key": binary_spec.key,
+                        "error": safe_error_message(error),
+                    }
+                )
+        progress.progress(
+            1.0,
+            text=translate_text(
+                "Full comparison completato.",
+                current_language(),
+            ),
+        )
+        st.session_state["full_binary_comparison"] = {
+            "key": full_comparison_key,
+            "rows": full_rows,
+            "classifier_name": classifier_spec.display_name,
+        }
+
+    saved_full_comparison = st.session_state.get(
+        "full_binary_comparison"
+    )
+    if (
+        saved_full_comparison
+        and saved_full_comparison["key"] == full_comparison_key
+    ):
+        render_full_binary_comparison(
+            saved_full_comparison["rows"],
+            competitor_name=saved_full_comparison["classifier_name"],
+        )
+    elif saved_full_comparison:
+        st.info(
+            "Le impostazioni del full comparison sono cambiate: premi il pulsante "
+            "per ricalcolarlo."
+        )
+
 saved_run = st.session_state.get("last_pgm_run")
 if saved_run and saved_run["configuration_key"] == configuration_key:
     payload = saved_run["payload"]
@@ -901,7 +1651,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
     y_test = payload["y_test"]
     table = results_frame(results, y_test)
 
-    st.subheader("3. Risultati")
+    st.subheader("4. Risultati PGM")
     selection = payload["encoding_selection"]
     selected_is_stereographic = payload["encoding"] == "stereographic"
     selected_encoding_label = (
@@ -1195,7 +1945,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         "di memoria della costruzione didattica del paper."
     )
 
-    st.subheader("4. Circuito quantistico della PGM")
+    st.subheader("5. Circuito quantistico della PGM")
     resources = actual_circuit_resources
     circuit_metrics = st.columns(5)
     circuit_metrics[0].metric("Dimensione ridotta", f"{resources.feature_dimension:,}")
