@@ -67,7 +67,7 @@ class ClassifierEquivalenceTests(unittest.TestCase):
                         )
                         self.assertEqual(results[name].rank, reference.rank)
 
-    def test_scalable_mode_materializes_only_safe_primal_representation(self) -> None:
+    def test_scalable_mode_selects_kernel_when_it_is_smaller(self) -> None:
         rng = np.random.default_rng(321)
         X_train = unit_rows(rng, rows=18, columns=4)
         X_test = unit_rows(rng, rows=7, columns=4)
@@ -82,14 +82,13 @@ class ClassifierEquivalenceTests(unittest.TestCase):
             explicit_dimension_limit=32,
         )
 
-        self.assertIn("kernel", results["c-PGM"].execution_mode)
+        self.assertIn("k-PGM", results["c-PGM"].execution_mode)
         self.assertEqual(
             results["k-PGM"].execution_mode, "kernel diretto indipendente"
         )
-        self.assertEqual(
-            results["r-PGM"].execution_mode, "esplicita indipendente"
-        )
+        self.assertIn("k-PGM", results["r-PGM"].execution_mode)
         self.assertTrue(np.isnan(results["c-PGM"].train_seconds))
+        self.assertTrue(np.isnan(results["r-PGM"].train_seconds))
         self.assertEqual(results["c-PGM"].representation_dimension, 4**3)
         self.assertEqual(results["r-PGM"].representation_dimension, 20)
         for name in ("c-PGM", "r-PGM"):
@@ -99,6 +98,37 @@ class ClassifierEquivalenceTests(unittest.TestCase):
             np.testing.assert_allclose(
                 results[name].scores,
                 results["k-PGM"].scores,
+                atol=2e-9,
+                rtol=2e-9,
+            )
+
+    def test_scalable_mode_selects_reduced_for_many_samples(self) -> None:
+        rng = np.random.default_rng(99)
+        X_train = unit_rows(rng, rows=60, columns=2)
+        X_test = unit_rows(rng, rows=8, columns=2)
+        y_train = np.asarray(["A"] * 30 + ["B"] * 30)
+
+        results = run_all_methods_scalable(
+            X_train,
+            y_train,
+            X_test,
+            copies=3,
+            relative_tolerance=1e-11,
+            explicit_dimension_limit=32,
+        )
+
+        self.assertEqual(
+            results["r-PGM"].execution_mode, "esplicita indipendente"
+        )
+        self.assertIn("r-PGM", results["k-PGM"].execution_mode)
+        self.assertIn("r-PGM", results["c-PGM"].execution_mode)
+        for name in ("c-PGM", "k-PGM"):
+            np.testing.assert_array_equal(
+                results[name].predictions, results["r-PGM"].predictions
+            )
+            np.testing.assert_allclose(
+                results[name].scores,
+                results["r-PGM"].scores,
                 atol=2e-9,
                 rtol=2e-9,
             )

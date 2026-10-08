@@ -35,9 +35,7 @@ from classifier_benchmark import (
     paired_balanced_accuracy_bootstrap,
 )
 from complexity import (
-    automatic_encoded_feature_count,
     human_bytes,
-    implementation_feasibility,
     paper_complexities,
     representation_dimensions,
     scientific_integer,
@@ -76,6 +74,11 @@ from i18n import (
     translate_text,
 )
 from pgm_core import MethodResult, stable_predictions, symmetric_feature_map
+from robust_evaluation import (
+    evaluation_seeds,
+    paired_seed_summary,
+    summarize_metrics,
+)
 from quantum_pgm import (
     best_certified_transpilation,
     build_naimark_dilation,
@@ -250,15 +253,13 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "5.1.1"
-EXPERIMENT_CACHE_SCHEMA = "5.1.1-raw-split"
+APP_VERSION = "5.2.0"
+EXPERIMENT_CACHE_SCHEMA = "5.2.0-full-features-multiseed"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
 AUTOMATIC_OPTIMIZATION_LEVELS = (1, 2, 3)
-AUTO_MAX_TENSOR_DIMENSION = 512
-AUTO_MAX_TOTAL_QUBITS = 7
-SCALABLE_EXPLICIT_DIMENSION_LIMIT = 512
+SCALABLE_EXPLICIT_DIMENSION_LIMIT = 2_000
 
 
 @st.cache_data(show_spinner=False, max_entries=24)
@@ -311,39 +312,26 @@ def execute_standard_classifier(
     )
 
 
-def encoding_feature_limits(
+def requested_feature_count(
     *,
     raw_feature_count: int,
-    copies: int,
-    class_count: int,
-    quantum_ready: bool,
-) -> tuple[int, int]:
-    """Return base dimensions for amplitude and stereographic candidates."""
+    manual_reduction: bool,
+    manual_feature_count: int,
+) -> int:
+    """Return the user-requested feature count, never an automatic reduction."""
 
-    if not quantum_ready:
-        return raw_feature_count, raw_feature_count
-    amplitude_features = automatic_encoded_feature_count(
-        raw_feature_count,
-        copies,
-        class_count,
-        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
-        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
-    )
-    stereographic_features = automatic_encoded_feature_count(
-        raw_feature_count,
-        copies,
-        class_count,
-        max_tensor_dimension=AUTO_MAX_TENSOR_DIMENSION,
-        max_total_qubits=AUTO_MAX_TOTAL_QUBITS,
-        minimum_feature_count=1,
-        added_encoding_features=1,
-    )
-    return amplitude_features, stereographic_features
+    if int(raw_feature_count) < 1:
+        raise ValueError("Il numero di feature deve essere positivo.")
+    if not manual_reduction:
+        return int(raw_feature_count)
+    if not 1 <= int(manual_feature_count) <= int(raw_feature_count):
+        raise ValueError("Il numero manuale di feature non è valido.")
+    return int(manual_feature_count)
 
 
 def pgm_benchmark_metrics(payload: dict) -> dict[str, float]:
     classes = np.unique(payload["y_train"])
-    result = payload["results"]["k-PGM"]
+    result = payload["results"][payload["computational_backend"]]
     return classification_metrics(
         payload["y_test"],
         result.predictions,
@@ -359,7 +347,7 @@ def compact_comparison_result(
     bootstrap_resamples: int,
     random_seed: int,
 ) -> dict:
-    pgm_result = payload["results"]["k-PGM"]
+    pgm_result = payload["results"][payload["computational_backend"]]
     bootstrap = paired_balanced_accuracy_bootstrap(
         payload["y_test"],
         pgm_result.predictions,
@@ -390,6 +378,133 @@ def compact_comparison_result(
         "base_d": payload["base_d"],
         "d": payload["d"],
         "source_used": payload["source_used"],
+        "computational_backend": payload["computational_backend"],
+    }
+
+
+def aggregate_seed_comparison(
+    pgm_evaluation: dict,
+    standard_results: list[dict],
+    *,
+    bootstrap_resamples: int,
+    base_seed: int,
+) -> dict:
+    """Combine repeated outer splits and retain one split for diagnostics."""
+
+    payloads = pgm_evaluation["payloads"]
+    if len(payloads) != len(standard_results) or len(payloads) < 2:
+        raise ValueError("Il confronto multi-seed richiede risultati appaiati.")
+    pgm_metric_records = [record["metrics"] for record in pgm_evaluation["records"]]
+    standard_metric_records = [result["metrics"] for result in standard_results]
+    reference = compact_comparison_result(
+        payloads[0],
+        standard_results[0],
+        bootstrap_resamples=bootstrap_resamples,
+        random_seed=base_seed,
+    )
+    reference.update(
+        {
+            "seed_count": len(payloads),
+            "seeds": tuple(pgm_evaluation["seeds"]),
+            "pgm_metric_summary": summarize_metrics(pgm_metric_records),
+            "standard_metric_summary": summarize_metrics(
+                standard_metric_records
+            ),
+            "paired_seed_summary": paired_seed_summary(
+                pgm_metric_records,
+                standard_metric_records,
+            ),
+            "seed_rows": [
+                {
+                    "Seed": int(seed),
+                    "Balanced accuracy PGM": pgm_metrics[
+                        "balanced_accuracy"
+                    ],
+                    "Balanced accuracy confronto": standard_metrics[
+                        "balanced_accuracy"
+                    ],
+                    "Differenza PGM − confronto": (
+                        pgm_metrics["balanced_accuracy"]
+                        - standard_metrics["balanced_accuracy"]
+                    ),
+                    "Backend PGM": pgm_record["computational_backend"],
+                    "Encoding PGM": pgm_record["encoding"],
+                    "Fattore t PGM": pgm_record["rescaling_factor"],
+                }
+                for seed, pgm_record, pgm_metrics, standard_metrics in zip(
+                    pgm_evaluation["seeds"],
+                    pgm_evaluation["records"],
+                    pgm_metric_records,
+                    standard_metric_records,
+                )
+            ],
+        }
+    )
+    return reference
+
+
+def pgm_seed_record(payload: dict, seed: int) -> dict:
+    """Compact, serializable metrics for one leakage-safe outer split."""
+
+    metrics = pgm_benchmark_metrics(payload)
+    return {
+        "seed": int(seed),
+        "metrics": metrics,
+        "encoding": payload["encoding"],
+        "rescaling_factor": payload["rescaling_factor"],
+        "base_d": int(payload["base_d"]),
+        "d": int(payload["d"]),
+        "computational_backend": payload["computational_backend"],
+    }
+
+
+@st.cache_data(show_spinner=False, max_entries=12)
+def execute_multiseed_pgm(
+    dataset_key: str,
+    copies: int,
+    test_fraction: float,
+    base_seed: int,
+    seed_count: int,
+    prior_mode: str,
+    relative_tolerance: float,
+    feature_count: int,
+    cache_schema: str,
+) -> dict:
+    """Evaluate the same full/manual feature policy over several outer splits."""
+
+    if cache_schema != EXPERIMENT_CACHE_SCHEMA:
+        raise ValueError("Schema della cache multi-seed non riconosciuto.")
+    seeds = evaluation_seeds(base_seed, seed_count)
+    reference_payload = None
+    payloads: list[dict] = []
+    records: list[dict] = []
+    for seed in seeds:
+        payload = run_experiment(
+            dataset_key,
+            copies=copies,
+            test_fraction=test_fraction,
+            random_seed=seed,
+            prior_mode=prior_mode,
+            relative_tolerance=relative_tolerance,
+            max_encoded_features=feature_count,
+            stereographic_max_encoded_features=feature_count,
+            scalable_full_features=True,
+            explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
+        )
+        if reference_payload is None:
+            reference_payload = payload
+        payloads.append(payload)
+        records.append(pgm_seed_record(payload, seed))
+    if reference_payload is None:
+        raise RuntimeError("La valutazione multi-seed non ha prodotto risultati.")
+    summary = summarize_metrics([record["metrics"] for record in records])
+    return {
+        "reference_payload": reference_payload,
+        "payloads": payloads,
+        "records": records,
+        "summary": summary,
+        "seeds": seeds,
+        "cache_schema": cache_schema,
     }
 
 
@@ -658,70 +773,108 @@ def render_classifier_comparison(
     competitor_name = translate_text(
         comparison["classifier_name"], current_language()
     )
+    seed_summary = comparison.get("paired_seed_summary")
     bootstrap = comparison["bootstrap"]
-    if bootstrap["winner"] == "pgm":
+    decision = seed_summary if seed_summary is not None else bootstrap
+    if decision["winner"] == "pgm":
         st.success(
-            f"Vincitore: PGM su {dataset_display_name}. L'intervallo bootstrap "
-            "appaiato della differenza di balanced accuracy è interamente positivo."
+            f"Vincitore: PGM su {dataset_display_name}. L'intervallo appaiato "
+            "multi-seed della differenza di balanced accuracy è interamente positivo."
         )
-    elif bootstrap["winner"] == "competitor":
+    elif decision["winner"] == "competitor":
         st.success(
             f"Vincitore: {competitor_name} su {dataset_display_name}. L'intervallo "
-            "bootstrap appaiato della differenza di balanced accuracy è interamente "
+            "appaiato multi-seed della differenza di balanced accuracy è interamente "
             "negativo."
         )
     else:
         st.info(
             f"Confronto non conclusivo su {dataset_display_name}: l'intervallo "
-            "bootstrap della differenza include zero, quindi non viene dichiarato "
+            "appaiato della differenza include zero, quindi non viene dichiarato "
             "un vincitore."
         )
 
     summary_columns = st.columns(4)
-    summary_columns[0].metric(
-        "Balanced accuracy PGM",
-        f"{100.0 * bootstrap['pgm_balanced_accuracy']:.2f}%",
-    )
-    summary_columns[1].metric(
-        f"Balanced accuracy {competitor_name}",
-        f"{100.0 * bootstrap['competitor_balanced_accuracy']:.2f}%",
-    )
-    summary_columns[2].metric(
-        "Differenza PGM − confronto",
-        f"{100.0 * bootstrap['difference']:+.2f} punti %",
-    )
-    summary_columns[3].metric(
-        "Intervallo bootstrap 95%",
-        (
+    if seed_summary is not None:
+        summary_columns[0].metric(
+            "Balanced accuracy PGM",
+            f"{100.0 * seed_summary['pgm_mean']:.2f}% ± "
+            f"{100.0 * seed_summary['pgm_std']:.2f}",
+        )
+        summary_columns[1].metric(
+            f"Balanced accuracy {competitor_name}",
+            f"{100.0 * seed_summary['competitor_mean']:.2f}% ± "
+            f"{100.0 * seed_summary['competitor_std']:.2f}",
+        )
+        summary_columns[2].metric(
+            "Differenza media PGM − confronto",
+            f"{100.0 * seed_summary['difference_mean']:+.2f} ± "
+            f"{100.0 * seed_summary['difference_std']:.2f} punti %",
+        )
+        summary_columns[3].metric(
+            "Intervallo appaiato 95%",
+            f"[{100.0 * seed_summary['confidence_lower']:+.2f}, "
+            f"{100.0 * seed_summary['confidence_upper']:+.2f}] punti %",
+        )
+        st.caption(
+            f"Media ± deviazione standard su {comparison['seed_count']} split "
+            "stratificati appaiati. Ogni modello è ottimizzato esclusivamente sul "
+            "training del relativo seed; nessun risultato viene scartato."
+        )
+    else:
+        summary_columns[0].metric(
+            "Balanced accuracy PGM",
+            f"{100.0 * bootstrap['pgm_balanced_accuracy']:.2f}%",
+        )
+        summary_columns[1].metric(
+            f"Balanced accuracy {competitor_name}",
+            f"{100.0 * bootstrap['competitor_balanced_accuracy']:.2f}%",
+        )
+        summary_columns[2].metric(
+            "Differenza PGM − confronto",
+            f"{100.0 * bootstrap['difference']:+.2f} punti %",
+        )
+        summary_columns[3].metric(
+            "Intervallo bootstrap 95%",
             f"[{100.0 * bootstrap['confidence_lower']:+.2f}, "
-            f"{100.0 * bootstrap['confidence_upper']:+.2f}] punti %"
-        ),
-    )
-    st.caption(
-        "Il vincitore è dichiarato soltanto quando l'intervallo bootstrap "
-        "stratificato e appaiato al 95% non include zero. Tutte le metriche sono "
-        "calcolate sul medesimo test set, mai usato per il tuning."
-    )
+            f"{100.0 * bootstrap['confidence_upper']:+.2f}] punti %",
+        )
 
     metric_rows: list[dict] = []
     chart_rows: list[dict] = []
     for metric_key, metric_label in METRIC_LABELS.items():
-        pgm_value = comparison["pgm_metrics"].get(metric_key, float("nan"))
-        standard_value = comparison["standard_metrics"].get(
-            metric_key, float("nan")
-        )
+        if seed_summary is not None:
+            pgm_stats = comparison["pgm_metric_summary"][metric_key]
+            standard_stats = comparison["standard_metric_summary"][metric_key]
+            pgm_value = float(pgm_stats["mean"])
+            standard_value = float(standard_stats["mean"])
+            pgm_display = (
+                f"{pgm_value:.4f} ± {float(pgm_stats['std']):.4f}"
+                if np.isfinite(pgm_value)
+                else "—"
+            )
+            standard_display = (
+                f"{standard_value:.4f} ± {float(standard_stats['std']):.4f}"
+                if np.isfinite(standard_value)
+                else "—"
+            )
+        else:
+            pgm_value = comparison["pgm_metrics"].get(metric_key, float("nan"))
+            standard_value = comparison["standard_metrics"].get(
+                metric_key, float("nan")
+            )
+            pgm_display = f"{pgm_value:.4f}" if np.isfinite(pgm_value) else "—"
+            standard_display = (
+                f"{standard_value:.4f}"
+                if np.isfinite(standard_value)
+                else "—"
+            )
         difference = pgm_value - standard_value
         metric_rows.append(
             {
                 "Metrica": metric_label,
-                "PGM": (
-                    f"{pgm_value:.4f}" if np.isfinite(pgm_value) else "—"
-                ),
-                competitor_name: (
-                    f"{standard_value:.4f}"
-                    if np.isfinite(standard_value)
-                    else "—"
-                ),
+                "PGM (media ± dev. std.)": pgm_display,
+                f"{competitor_name} (media ± dev. std.)": standard_display,
                 "Differenza PGM − confronto": (
                     f"{difference:+.4f}"
                     if np.isfinite(difference)
@@ -751,6 +904,26 @@ def render_classifier_comparison(
         hide_index=True,
         width="stretch",
     )
+
+    if seed_summary is not None:
+        with st.expander("Risultati per ciascun seed", expanded=False):
+            seed_frame = pd.DataFrame(comparison["seed_rows"])
+            st.dataframe(
+                seed_frame,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Balanced accuracy PGM": st.column_config.NumberColumn(
+                        format="%.4f"
+                    ),
+                    "Balanced accuracy confronto": st.column_config.NumberColumn(
+                        format="%.4f"
+                    ),
+                    "Differenza PGM − confronto": st.column_config.NumberColumn(
+                        format="%+.4f"
+                    ),
+                },
+            )
     st.vega_lite_chart(
         pd.DataFrame(chart_rows),
         {
@@ -816,7 +989,8 @@ def render_classifier_comparison(
         classes,
     )
     with st.expander(
-        "Matrici di confusione e tuning del classificatore", expanded=False
+        "Matrici di confusione e tuning del classificatore sul seed di riferimento",
+        expanded=False,
     ):
         confusion_columns = st.columns(2)
         with confusion_columns[0]:
@@ -846,12 +1020,12 @@ def render_classifier_comparison(
                 ),
                 "Tempo fit e tuning (s)": comparison["fit_seconds"],
                 "Tempo predizione (s)": comparison["predict_seconds"],
-                "Encoding PGM": (
+                "Encoding PGM (seed di riferimento)": (
                     "Stereografico + encoding in ampiezza"
                     if comparison["encoding"] == "stereographic"
                     else "Encoding in ampiezza normalizzato"
                 ),
-                "Fattore t PGM": (
+                "Fattore t PGM (seed di riferimento)": (
                     comparison["rescaling_factor"]
                     if comparison["rescaling_factor"] is not None
                     else "Non applicabile"
@@ -917,18 +1091,22 @@ def render_full_binary_comparison(
             {
                 "Dataset": dataset_name,
                 "Balanced accuracy PGM": (
-                    f"{100.0 * row['pgm_balanced_accuracy']:.2f}%"
+                    f"{100.0 * row['pgm_balanced_accuracy']:.2f}% ± "
+                    f"{100.0 * row['pgm_balanced_accuracy_std']:.2f}"
                 ),
                 f"Balanced accuracy {competitor_name}": (
-                    f"{100.0 * row['competitor_balanced_accuracy']:.2f}%"
+                    f"{100.0 * row['competitor_balanced_accuracy']:.2f}% ± "
+                    f"{100.0 * row['competitor_balanced_accuracy_std']:.2f}"
                 ),
                 "Differenza PGM − confronto": (
-                    f"{100.0 * row['difference']:+.2f} punti %"
+                    f"{100.0 * row['difference']:+.2f} ± "
+                    f"{100.0 * row['difference_std']:.2f} punti %"
                 ),
-                "Intervallo bootstrap 95%": (
+                "Intervallo appaiato 95%": (
                     f"[{100.0 * row['confidence_lower']:+.2f}, "
                     f"{100.0 * row['confidence_upper']:+.2f}] punti %"
                 ),
+                "Numero di seed": row["seed_count"],
                 "Vincitore": outcome,
                 "Encoding PGM": (
                     "Stereografico + encoding in ampiezza"
@@ -963,9 +1141,9 @@ def render_full_binary_comparison(
 
     st.dataframe(matrix.style.map(matrix_color), width="stretch")
     st.caption(
-        "WIN o LOSS sono assegnati soltanto quando l'intervallo bootstrap "
-        "appaiato al 95% della differenza di balanced accuracy esclude zero; "
-        "negli altri casi il risultato è TIE."
+        "WIN o LOSS sono assegnati soltanto quando l'intervallo Student-t al 95% "
+        "delle differenze appaiate tra seed esclude zero; negli altri casi il "
+        "risultato è TIE. Le celle riportano medie calcolate su tutti i seed."
     )
 
     outcome_domain = [
@@ -1092,11 +1270,12 @@ st.caption(
 )
 st.write(
     "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
-    "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, prior, "
-    "split e soglia spettrale. Sul solo training set, l'app sceglie automaticamente "
-    "tra encoding in ampiezza normalizzato ed encoding stereografico, ottimizzandone "
-    "il fattore di rescaling. Dopo il training finale costruisce anche il circuito "
-    "quantistico della PGM mediante una dilatazione di Naimark."
+    "La classificazione conserva tutte le feature salvo riduzione PCA richiesta "
+    "esplicitamente dall'utente e usa il backend esatto meno oneroso tra k-PGM e "
+    "r-PGM. Le prestazioni sono aggregate su più split stratificati mediante media "
+    "e deviazione standard. Sul solo training set, l'app sceglie l'encoding e il "
+    "fattore di rescaling; quando le dimensioni lo consentono costruisce anche il "
+    "circuito quantistico della PGM mediante una dilatazione di Naimark."
 )
 
 with st.expander("Che cosa significa 'equivalenti'?", expanded=False):
@@ -1107,11 +1286,12 @@ with st.expander("Che cosa significa 'equivalenti'?", expanded=False):
         - **r-PGM** usa la base simmetrica minima di dimensione
           $d_{sym}=\binom{d+c-1}{c}$.
 
-        L'equivalenza teorica riguarda gli score di classe. L'app verifica sia lo
-        scarto massimo tra gli score sia l'identità delle predizioni, usando la stessa
-        regola deterministica in caso di pareggio numerico. Il termine di completamento
-        $P_{ker(\sigma)}/l$ viene omesso dagli score perché è uguale per ogni classe e
-        non modifica l'argmax, come osservato nell'appendice del paper.
+        L'equivalenza teorica riguarda gli score di classe. Durante l'uso l'app sceglie
+        la diagonalizzazione meno onerosa tra k-PGM e r-PGM e ricostruisce gli score
+        delle altre formulazioni tramite la medesima Gram matrix, senza duplicare il
+        costo. La suite numerica verifica separatamente l'equivalenza delle tre mappe.
+        Il termine di completamento $P_{ker(\sigma)}/l$ viene omesso dagli score perché
+        è uguale per ogni classe e non modifica l'argmax.
         """
     )
 
@@ -1163,23 +1343,33 @@ with right:
         ),
     )
 
-feature_mode = st.radio(
-    "Gestione delle feature",
-    [
-        "Automatica quantum-ready (consigliata)",
-        "Tutte le feature originali",
-    ],
-    horizontal=True,
-    key="feature_mode_choice",
+spec = get_dataset_spec(selected_key)
+manual_feature_reduction = st.toggle(
+    "Richiedi manualmente una riduzione PCA",
+    value=False,
+    key="manual_feature_reduction",
     help=(
-        "La modalità automatica usa tutte le feature quando possibile; altrimenti "
-        "applica una PCA appresa solo sul training set, così restano eseguibili "
-        "c-PGM, k-PGM, r-PGM e il circuito."
+        "Disattivata per impostazione predefinita: il PGM usa tutte le feature. "
+        "Se la attivi, scegli tu quante componenti mantenere; la PCA viene appresa "
+        "esclusivamente sul training set di ciascun seed."
     ),
 )
+if manual_feature_reduction:
+    manual_feature_count = st.slider(
+        "Numero di feature dopo la PCA manuale",
+        min_value=1,
+        max_value=max(1, spec.features - 1),
+        value=max(1, min(16, spec.features - 1)),
+        step=1,
+        key=f"manual_feature_count_{selected_key}",
+    )
+    feature_mode = "Riduzione manuale PCA"
+else:
+    manual_feature_count = spec.features
+    feature_mode = "Tutte le feature originali"
 
 with st.expander("Impostazioni avanzate", expanded=False):
-    advanced_1, advanced_2, advanced_3 = st.columns(3)
+    advanced_1, advanced_2, advanced_3, advanced_4 = st.columns(4)
     with advanced_1:
         test_fraction = st.slider(
             "Quota test set",
@@ -1191,7 +1381,7 @@ with st.expander("Impostazioni avanzate", expanded=False):
         )
     with advanced_2:
         random_seed = st.number_input(
-            "Seed dello split",
+            "Seed iniziale",
             min_value=0,
             max_value=1_000_000,
             value=42,
@@ -1209,6 +1399,17 @@ with st.expander("Impostazioni avanzate", expanded=False):
                 "primali."
             ),
         )
+    with advanced_4:
+        seed_count = st.select_slider(
+            "Numero di seed di valutazione",
+            options=[3, 5, 10, 15, 20],
+            value=10,
+            key="evaluation_seed_count",
+            help=(
+                "Ogni seed genera un nuovo split stratificato. Sono riportate "
+                "media e deviazione standard; nessun seed viene scartato."
+            ),
+        )
     tolerance_exponent = st.select_slider(
         "Soglia spettrale relativa",
         options=[8, 9, 10, 11, 12],
@@ -1218,17 +1419,13 @@ with st.expander("Impostazioni avanzate", expanded=False):
         help="Gli autovalori <= soglia x lambda_max sono esclusi in tutti e tre i metodi.",
     )
 
-spec = get_dataset_spec(selected_key)
-quantum_ready_mode = feature_mode.startswith("Automatica")
-(
-    tensor_base_feature_count,
-    stereographic_base_feature_count,
-) = encoding_feature_limits(
+selected_feature_count = requested_feature_count(
     raw_feature_count=spec.features,
-    copies=copies,
-    class_count=spec.classes,
-    quantum_ready=quantum_ready_mode,
+    manual_reduction=manual_feature_reduction,
+    manual_feature_count=manual_feature_count,
 )
+tensor_base_feature_count = selected_feature_count
+stereographic_base_feature_count = selected_feature_count
 
 # The stereographic map adds one coordinate.  Resource previews use the larger
 # candidate dimension, so whichever encoding wins can be executed safely.
@@ -1241,12 +1438,23 @@ n_train_estimate = spec.samples - n_test_estimate
 tensor_dimension, symmetric_dimension = representation_dimensions(
     preview_encoded_dimension, copies
 )
-feasibility = implementation_feasibility(
-    n_train=n_train_estimate,
-    n_test=n_test_estimate,
-    dimension=preview_encoded_dimension,
-    copies=copies,
-    memory_budget_bytes=int(memory_budget_gib * 1024**3),
+adaptive_backend = (
+    "r-PGM"
+    if symmetric_dimension < n_train_estimate
+    and symmetric_dimension <= SCALABLE_EXPLICIT_DIMENSION_LIMIT
+    else "k-PGM"
+)
+adaptive_dimension = (
+    symmetric_dimension if adaptive_backend == "r-PGM" else n_train_estimate
+)
+adaptive_peak_bytes = 8 * (
+    6 * adaptive_dimension**2
+    + (n_train_estimate + n_test_estimate) * adaptive_dimension
+    + n_train_estimate * preview_encoded_dimension
+)
+adaptive_feasible = (
+    adaptive_peak_bytes <= int(memory_budget_gib * 1024**3)
+    and adaptive_dimension <= 2_000
 )
 
 st.subheader("2. Controlla le dimensioni prima del calcolo")
@@ -1260,21 +1468,18 @@ metric_3.metric(
 metric_4.metric("d^c (c-PGM)", f"{tensor_dimension:,}")
 metric_5.metric("d_sym (r-PGM)", f"{symmetric_dimension:,}")
 
-if (
-    tensor_base_feature_count < spec.features
-    or stereographic_base_feature_count < spec.features
-):
+if manual_feature_reduction:
     st.info(
-        "Riduzione automatica quantum-ready: la baseline usa "
-        f"{tensor_base_feature_count} feature di base; l'encoding stereografico usa "
-        f"{stereographic_base_feature_count} feature di base più una coordinata "
-        "stereografica. Ogni PCA e ogni confronto vengono appresi esclusivamente "
-        "sul training set. La configurazione scelta sarà mostrata dopo il calcolo."
+        "Riduzione richiesta dall'utente: la PCA conserva "
+        f"{selected_feature_count} delle {spec.features} feature. Viene adattata "
+        "separatamente sul solo training set di ciascun seed; il test set non "
+        "partecipa mai alla selezione."
     )
 else:
     st.success(
-        "Nessuna PCA necessaria: entrambi i candidati usano tutte le feature "
-        "originali; l'encoding stereografico aggiunge una coordinata."
+        "Nessuna feature selection automatica: il PGM usa tutte le "
+        f"{spec.features} feature originali. L'encoding stereografico aggiunge "
+        "soltanto la propria coordinata geometrica."
     )
 
 preview_circuit_resources = resources_for_dataset(
@@ -1299,9 +1504,9 @@ else:
         f"{preview_circuit_resources.unitary_dimension:,} "
         f"({human_bytes(preview_circuit_resources.unitary_bytes)}). La matrice esatta "
         f"supera il limite prudenziale di {EXACT_CIRCUIT_QUBIT_LIMIT} qubit. "
-        "La classificazione classica resta disponibile; seleziona la modalità "
-        "automatica quantum-ready soltanto se vuoi anche il circuito esatto, la "
-        "validazione circuitale e l'esecuzione quantistica."
+        "La classificazione resta disponibile senza ridurre le feature. Se desideri "
+        "anche il circuito esatto, puoi richiedere esplicitamente una PCA manuale "
+        "e scegliere il numero di componenti."
     )
 
 preview_complexities = paper_complexities(
@@ -1324,41 +1529,21 @@ st.caption(
     "più grande. Dopo il run saranno ricalcolate sulla configurazione selezionata."
 )
 
-full_feature_mode = feature_mode == "Tutte le feature originali"
-kernel_peak_bytes = 8 * (
-    8 * n_train_estimate**2 + n_train_estimate * preview_encoded_dimension
-)
-kernel_feasible = (
-    kernel_peak_bytes <= int(memory_budget_gib * 1024**3)
-    and n_train_estimate <= 2_000
-)
-scalable_full_features = (
-    full_feature_mode and not feasibility.feasible and kernel_feasible
-)
-classical_run_allowed = feasibility.feasible or scalable_full_features
+scalable_full_features = True
+classical_run_allowed = adaptive_feasible
 
-if feasibility.feasible:
+if adaptive_feasible:
     st.success(
-        "Configurazione eseguibile con il limite prudenziale dell'app. "
-        f"Picco NumPy stimato: {human_bytes(feasibility.estimated_peak_bytes)}."
-    )
-elif scalable_full_features:
-    st.warning(
-        "Le rappresentazioni primali complete sono troppo grandi da materializzare, "
-        "ma la classificazione è disponibile in modalità scalabile con tutte le "
-        "feature originali. Il k-PGM viene calcolato direttamente; c-PGM e r-PGM "
-        f"vengono eseguiti anche in forma esplicita quando la loro dimensione è <= "
-        f"{SCALABLE_EXPLICIT_DIMENSION_LIMIT:,}, altrimenti sono valutati tramite "
-        "lo stesso kernel esatto ⟨x,z⟩^c. L'interfaccia distinguerà chiaramente i "
-        "metodi materializzati da quelli equivalenti via kernel."
+        f"Backend esatto previsto: {adaptive_backend}, dimensione numerica "
+        f"{adaptive_dimension:,}. Nessuna feature viene eliminata automaticamente. "
+        f"Picco prudenziale stimato: {human_bytes(adaptive_peak_bytes)}."
     )
 else:
     st.error(
-        "Anche il calcolo kernel supera il limite prudenziale selezionato: "
-        + "; ".join(feasibility.reasons)
-        + ". Usa la modalità automatica quantum-ready oppure aumenta il budget solo "
-        "se il computer dispone realmente di quella RAM. "
-        "La tabella di complessità rimane comunque valida."
+        f"Il backend esatto meno oneroso ({adaptive_backend}, dimensione "
+        f"{adaptive_dimension:,}) supera il limite prudenziale selezionato. "
+        "Aumenta il budget soltanto se il computer dispone realmente della RAM, "
+        "oppure richiedi manualmente una riduzione PCA."
     )
 
 configuration_key = (
@@ -1369,14 +1554,15 @@ configuration_key = (
     stereographic_base_feature_count,
     float(test_fraction),
     int(random_seed),
+    int(seed_count),
     PRIOR_LABELS[prior_label],
     int(tolerance_exponent),
     scalable_full_features,
 )
 run_button_label = (
-    "Esegui i classificatori e costruisci il circuito"
+    "Esegui la valutazione multi-seed e costruisci il circuito"
     if preview_circuit_resources.exact_materialization_allowed
-    else "Esegui i classificatori (circuito non materializzato)"
+    else "Esegui la valutazione multi-seed (circuito non materializzato)"
 )
 run_clicked = st.button(
     run_button_label,
@@ -1387,22 +1573,25 @@ run_clicked = st.button(
 
 if run_clicked:
     try:
-        with st.spinner("Download/cache del dataset e calcolo dei tre PGM in corso..."):
-            payload = execute_experiment(
+        with st.spinner(
+            f"Valutazione PGM su {int(seed_count)} seed in corso..."
+        ):
+            multiseed_evaluation = execute_multiseed_pgm(
                 selected_key,
                 copies,
                 float(test_fraction),
                 int(random_seed),
+                int(seed_count),
                 PRIOR_LABELS[prior_label],
                 10.0 ** (-int(tolerance_exponent)),
-                tensor_base_feature_count,
-                stereographic_base_feature_count,
-                scalable_full_features,
+                selected_feature_count,
                 EXPERIMENT_CACHE_SCHEMA,
             )
+            payload = multiseed_evaluation["reference_payload"]
         st.session_state["last_pgm_run"] = {
             "configuration_key": configuration_key,
             "payload": payload,
+            "multiseed_evaluation": multiseed_evaluation,
         }
     except Exception as error:
         st.exception(error)
@@ -1410,15 +1599,15 @@ if run_clicked:
 st.subheader("3. Confronto con altri classificatori")
 st.write(
     "Questa sezione è indipendente dal pulsante principale. Se la abiliti, confronta "
-    "la PGM con un classificatore standard sullo stesso split train/test. Il modello "
-    "standard viene ottimizzato con una ricerca compatta sul solo training set; la "
-    "balanced accuracy decide il confronto ed è accompagnata da precision, recall, "
-    "F1-score, Kappa di Cohen, coefficiente di Matthews e ROC-AUC."
+    "la PGM con un classificatore standard sugli stessi split stratificati e sugli "
+    "stessi seed. Il modello standard viene ottimizzato con una ricerca compatta sul "
+    "solo training set; per ogni metrica vengono riportate media e deviazione standard."
 )
 st.caption(
     "Nel confronto, PGM indica la configurazione scelta automaticamente sul "
     "training set (encoding e, se applicabile, fattore t). c-PGM, k-PGM e r-PGM "
-    "hanno la stessa decisione teorica; per le metriche viene usata k-PGM."
+    "hanno la stessa decisione teorica; il calcolo usa il backend esatto meno oneroso "
+    "tra k-PGM e r-PGM, senza riduzione automatica delle feature."
 )
 comparison_enabled = st.toggle(
     "Abilita il confronto opzionale",
@@ -1444,9 +1633,9 @@ if comparison_enabled:
     classifier_spec = get_classifier_spec(classifier_key)
     st.caption(classifier_spec.description)
     st.info(
-        "Il confronto sul dataset corrente usa fino a 3 fold di tuning. Il full "
-        "comparison usa 2 fold per contenere i tempi e include tutti i dataset "
-        "binari del catalogo; i download OpenML sono memorizzati in cache."
+        f"Il confronto corrente usa {int(seed_count)} seed e fino a 3 fold di tuning "
+        "interni per ciascun training set. Il full comparison usa gli stessi seed e "
+        "2 fold per contenere i tempi; i download OpenML sono memorizzati in cache."
     )
     comparison_actions = st.columns(2)
     compare_current_clicked = comparison_actions[0].button(
@@ -1469,46 +1658,51 @@ if comparison_enabled:
     if compare_current_clicked:
         try:
             with st.spinner(
-                "Training della PGM, tuning del classificatore e bootstrap "
-                "appaiato in corso..."
+                f"Confronto appaiato su {int(seed_count)} seed in corso..."
             ):
-                comparison_pgm_payload = execute_experiment(
+                comparison_pgm_evaluation = execute_multiseed_pgm(
                     selected_key,
                     copies,
                     float(test_fraction),
                     int(random_seed),
+                    int(seed_count),
                     PRIOR_LABELS[prior_label],
                     10.0 ** (-int(tolerance_exponent)),
-                    tensor_base_feature_count,
-                    stereographic_base_feature_count,
-                    scalable_full_features,
+                    selected_feature_count,
                     EXPERIMENT_CACHE_SCHEMA,
                 )
-                (
-                    comparison_X_train_raw,
-                    comparison_y_train,
-                    comparison_X_test_raw,
-                    comparison_y_test,
-                ) = benchmark_raw_split(
-                    comparison_pgm_payload,
-                    dataset_key=selected_key,
-                    test_fraction=float(test_fraction),
-                    random_seed=int(random_seed),
-                )
-                standard_result = execute_standard_classifier(
-                    comparison_X_train_raw,
-                    comparison_y_train,
-                    comparison_X_test_raw,
-                    comparison_y_test,
-                    classifier_key,
-                    int(random_seed),
-                    3,
-                )
-                selected_comparison = compact_comparison_result(
-                    comparison_pgm_payload,
-                    standard_result,
+                standard_results: list[dict] = []
+                for seed, comparison_pgm_payload in zip(
+                    comparison_pgm_evaluation["seeds"],
+                    comparison_pgm_evaluation["payloads"],
+                ):
+                    (
+                        comparison_X_train_raw,
+                        comparison_y_train,
+                        comparison_X_test_raw,
+                        comparison_y_test,
+                    ) = benchmark_raw_split(
+                        comparison_pgm_payload,
+                        dataset_key=selected_key,
+                        test_fraction=float(test_fraction),
+                        random_seed=int(seed),
+                    )
+                    standard_results.append(
+                        execute_standard_classifier(
+                            comparison_X_train_raw,
+                            comparison_y_train,
+                            comparison_X_test_raw,
+                            comparison_y_test,
+                            classifier_key,
+                            int(seed),
+                            3,
+                        )
+                    )
+                selected_comparison = aggregate_seed_comparison(
+                    comparison_pgm_evaluation,
+                    standard_results,
                     bootstrap_resamples=2_000,
-                    random_seed=int(random_seed),
+                    base_seed=int(random_seed),
                 )
             st.session_state["selected_classifier_comparison"] = {
                 "key": selected_comparison_key,
@@ -1539,8 +1733,10 @@ if comparison_enabled:
         classifier_key,
         copies,
         feature_mode,
+        int(selected_feature_count),
         float(test_fraction),
         int(random_seed),
+        int(seed_count),
         PRIOR_LABELS[prior_label],
         int(tolerance_exponent),
     )
@@ -1563,72 +1759,76 @@ if comparison_enabled:
                 ),
             )
             try:
-                (
-                    full_tensor_features,
-                    full_stereographic_features,
-                ) = encoding_feature_limits(
+                full_feature_count = requested_feature_count(
                     raw_feature_count=binary_spec.features,
-                    copies=copies,
-                    class_count=binary_spec.classes,
-                    quantum_ready=quantum_ready_mode,
+                    manual_reduction=manual_feature_reduction,
+                    manual_feature_count=min(
+                        int(manual_feature_count), binary_spec.features
+                    ),
                 )
-                full_pgm_payload = execute_experiment(
+                full_pgm_evaluation = execute_multiseed_pgm(
                     binary_spec.key,
                     copies,
                     float(test_fraction),
                     int(random_seed),
+                    int(seed_count),
                     PRIOR_LABELS[prior_label],
                     10.0 ** (-int(tolerance_exponent)),
-                    full_tensor_features,
-                    full_stereographic_features,
-                    not quantum_ready_mode,
+                    full_feature_count,
                     EXPERIMENT_CACHE_SCHEMA,
                 )
-                (
-                    full_X_train_raw,
-                    full_y_train,
-                    full_X_test_raw,
-                    full_y_test,
-                ) = benchmark_raw_split(
-                    full_pgm_payload,
-                    dataset_key=binary_spec.key,
-                    test_fraction=float(test_fraction),
-                    random_seed=int(random_seed),
-                )
-                full_standard_result = execute_standard_classifier(
-                    full_X_train_raw,
-                    full_y_train,
-                    full_X_test_raw,
-                    full_y_test,
-                    classifier_key,
-                    int(random_seed),
-                    2,
-                )
-                full_case = compact_comparison_result(
-                    full_pgm_payload,
-                    full_standard_result,
+                full_standard_results: list[dict] = []
+                for seed, full_pgm_payload in zip(
+                    full_pgm_evaluation["seeds"],
+                    full_pgm_evaluation["payloads"],
+                ):
+                    (
+                        full_X_train_raw,
+                        full_y_train,
+                        full_X_test_raw,
+                        full_y_test,
+                    ) = benchmark_raw_split(
+                        full_pgm_payload,
+                        dataset_key=binary_spec.key,
+                        test_fraction=float(test_fraction),
+                        random_seed=int(seed),
+                    )
+                    full_standard_results.append(
+                        execute_standard_classifier(
+                            full_X_train_raw,
+                            full_y_train,
+                            full_X_test_raw,
+                            full_y_test,
+                            classifier_key,
+                            int(seed),
+                            2,
+                        )
+                    )
+                full_case = aggregate_seed_comparison(
+                    full_pgm_evaluation,
+                    full_standard_results,
                     bootstrap_resamples=750,
-                    random_seed=int(random_seed),
+                    base_seed=int(random_seed),
                 )
-                full_bootstrap = full_case["bootstrap"]
+                full_seed_summary = full_case["paired_seed_summary"]
                 full_rows.append(
                     {
                         "dataset": binary_spec.display_name,
                         "dataset_key": binary_spec.key,
-                        "pgm_balanced_accuracy": full_bootstrap[
-                            "pgm_balanced_accuracy"
+                        "pgm_balanced_accuracy": full_seed_summary["pgm_mean"],
+                        "pgm_balanced_accuracy_std": full_seed_summary["pgm_std"],
+                        "competitor_balanced_accuracy": full_seed_summary[
+                            "competitor_mean"
                         ],
-                        "competitor_balanced_accuracy": full_bootstrap[
-                            "competitor_balanced_accuracy"
+                        "competitor_balanced_accuracy_std": full_seed_summary[
+                            "competitor_std"
                         ],
-                        "difference": full_bootstrap["difference"],
-                        "confidence_lower": full_bootstrap[
-                            "confidence_lower"
-                        ],
-                        "confidence_upper": full_bootstrap[
-                            "confidence_upper"
-                        ],
-                        "winner": full_bootstrap["winner"],
+                        "difference": full_seed_summary["difference_mean"],
+                        "difference_std": full_seed_summary["difference_std"],
+                        "confidence_lower": full_seed_summary["confidence_lower"],
+                        "confidence_upper": full_seed_summary["confidence_upper"],
+                        "winner": full_seed_summary["winner"],
+                        "seed_count": full_seed_summary["count"],
                         "encoding": full_case["encoding"],
                         "rescaling_factor": full_case[
                             "rescaling_factor"
@@ -1677,11 +1877,66 @@ if comparison_enabled:
 saved_run = st.session_state.get("last_pgm_run")
 if saved_run and saved_run["configuration_key"] == configuration_key:
     payload = saved_run["payload"]
+    multiseed_evaluation = saved_run["multiseed_evaluation"]
     results: dict[str, MethodResult] = payload["results"]
     y_test = payload["y_test"]
     table = results_frame(results, y_test)
 
     st.subheader("4. Risultati PGM")
+    robust_summary = multiseed_evaluation["summary"]
+    robust_columns = st.columns(4)
+    for column, metric_key, label, scale, suffix in zip(
+        robust_columns,
+        ("balanced_accuracy", "accuracy", "f1_macro", "cohen_kappa"),
+        ("Balanced accuracy", "Accuratezza", "F1-score macro", "Kappa di Cohen"),
+        (100.0, 100.0, 100.0, 1.0),
+        ("%", "%", "%", ""),
+    ):
+        statistics = robust_summary[metric_key]
+        column.metric(
+            f"{label} · media ± dev. std.",
+            f"{scale * float(statistics['mean']):.2f}{suffix} ± "
+            f"{scale * float(statistics['std']):.2f}",
+        )
+    st.caption(
+        f"Valutazione esterna su {len(multiseed_evaluation['seeds'])} split "
+        f"stratificati (seed {multiseed_evaluation['seeds'][0]}–"
+        f"{multiseed_evaluation['seeds'][-1]}). Sono inclusi tutti i risultati; "
+        "le statistiche sono comuni a c-PGM, k-PGM e r-PGM perché le predizioni "
+        "sono esattamente equivalenti. "
+        f"Lo split con seed {int(random_seed)} è usato sotto soltanto per matrici "
+        "di confusione, dettaglio dei campioni e circuito."
+    )
+    with st.expander("Dettaglio della valutazione multi-seed", expanded=False):
+        robust_rows = []
+        for record in multiseed_evaluation["records"]:
+            robust_rows.append(
+                {
+                    "Seed": record["seed"],
+                    "Balanced accuracy": record["metrics"]["balanced_accuracy"],
+                    "Accuratezza": record["metrics"]["accuracy"],
+                    "F1-score macro": record["metrics"]["f1_macro"],
+                    "Kappa di Cohen": record["metrics"]["cohen_kappa"],
+                    "Backend PGM": record["computational_backend"],
+                    "Encoding": record["encoding"],
+                    "Fattore t": record["rescaling_factor"],
+                }
+            )
+        st.dataframe(
+            pd.DataFrame(robust_rows),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                name: st.column_config.NumberColumn(format="%.4f")
+                for name in (
+                    "Balanced accuracy",
+                    "Accuratezza",
+                    "F1-score macro",
+                    "Kappa di Cohen",
+                )
+            },
+        )
+
     selection = payload["encoding_selection"]
     selected_is_stereographic = payload["encoding"] == "stereographic"
     selected_encoding_label = (
@@ -1717,7 +1972,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         ),
     )
     selection_metrics[2].metric(
-        "Accuratezza di validazione",
+        "Balanced accuracy di validazione",
         f"{100.0 * selection['validation_accuracy']:.2f}%",
     )
     selection_metrics[3].metric(
@@ -1755,7 +2010,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 ),
                 "Feature dopo PCA": candidate["base_dimension"],
                 "Dimensione encoding": candidate["encoded_dimension"],
-                "Accuratezza validazione": (
+                "Balanced accuracy validazione": (
                     f"{100.0 * candidate['validation_accuracy']:.2f}%"
                     if candidate["available"]
                     else "—"
@@ -1780,13 +2035,17 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         st.caption(
             "Il valutatore indicato è la rappresentazione PGM esatta meno costosa "
             "per quella fold. c-PGM, k-PGM e r-PGM hanno gli stessi score teorici; "
-            "il training finale continua comunque a verificarli tutti e tre."
+            "il training finale evita diagonalizzazioni duplicate e conserva gli "
+            "score equivalenti delle tre formulazioni."
         )
 
     accuracy_columns = st.columns(3)
     for column, method in zip(accuracy_columns, ("c-PGM", "k-PGM", "r-PGM")):
         accuracy = accuracy_score(y_test, results[method].predictions)
-        column.metric(f"Accuratezza {method}", f"{100.0 * accuracy:.4f}%")
+        column.metric(
+            f"Accuratezza {method} · seed di riferimento",
+            f"{100.0 * accuracy:.4f}%",
+        )
 
     all_predictions_equal = (
         np.array_equal(results["c-PGM"].predictions, results["k-PGM"].predictions)
@@ -1811,25 +2070,26 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
     if kernel_equivalent_methods:
         if all_predictions_equal:
             st.success(
-                "Classificazione completata con tutte le feature originali: le tre "
+                "Classificazione completata con la politica di feature richiesta: le tre "
                 f"formulazioni restituiscono le stesse predizioni sui {len(y_test)} "
                 "campioni di test."
             )
         else:
             st.warning(
                 "Una formulazione calcolata esplicitamente non coincide con il "
-                "risultato kernel su tutti i campioni. Il caso può essere "
+                "backend esatto scelto su tutti i campioni. Il caso può essere "
                 "numericamente quasi degenere: consulta la diagnostica."
             )
         st.info(
-            "Calcolo scalabile attivo. "
+            f"Backend adattivo attivo: {payload['computational_backend']}. "
             + ", ".join(independent_methods)
-            + " sono stati calcolati direttamente e indipendentemente; "
+            + " è stato calcolato direttamente; "
             + ", ".join(kernel_equivalent_methods)
             + " sono stati valutati mediante l'identità esatta delle Gram matrix "
-            "con k-PGM, senza costruire le rispettive matrici primali. Gli zeri negli "
+            f"con {payload['computational_backend']}, senza costruire le rispettive "
+            "matrici. Gli zeri negli "
             "scarti che coinvolgono questi metodi derivano quindi dall'equivalenza "
-            "usata, non da tre esecuzioni indipendenti."
+            "matematica, non da tre diagonalizzazioni duplicate."
         )
     elif all_predictions_equal:
         st.success(
@@ -1889,13 +2149,13 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         exact_qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
     )
     if not actual_circuit_resources.exact_materialization_allowed:
-        classical_predictions = results["k-PGM"].predictions
+        classical_predictions = results[payload["computational_backend"]].predictions
         classical_classes = np.unique(payload["y_train"])
         classical_correct = classical_predictions == y_test
         classical_counts, classical_percentages = confusion_frames(
             y_test, classical_predictions, classical_classes
         )
-        st.markdown("#### Classificazione test (calcolo classico scalabile)")
+        st.markdown("#### Classificazione test (calcolo classico adattivo)")
         st.write(
             "Questa valutazione non richiede la costruzione del circuito. Ogni riga "
             "confronta la classe reale con la predizione comune a c-PGM, k-PGM e "
@@ -3925,9 +4185,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 f"({human_bytes(resources.unitary_bytes)} in complex128). Per proteggere "
                 "la memoria, l'app mostra l'architettura dimensionata ma non materializza "
                 "U_PGM. I risultati classici, la matrice di confusione e il dettaglio "
-                "dei campioni restano disponibili sopra. Seleziona **Automatica "
-                "quantum-ready** per ottenere il circuito esatto esportabile e "
-                "l'esecuzione quantistica; in alternativa riduci il numero di copie."
+                "dei campioni restano disponibili sopra. Per ottenere il circuito "
+                "esatto esportabile puoi richiedere manualmente una PCA con meno "
+                "componenti oppure ridurre il numero di copie."
             )
             st.markdown(circuit_drawing, unsafe_allow_html=True)
             st.caption(

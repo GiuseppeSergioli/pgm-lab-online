@@ -433,32 +433,35 @@ def run_all_methods(
     return {result.method: result for result in results}
 
 
-def _equivalent_result_from_kernel(
-    kernel_result: MethodResult,
+def _equivalent_result_from_reference(
+    reference_result: MethodResult,
     *,
     method: str,
     representation_dimension: int,
 ) -> MethodResult:
-    """Represent a primal PGM through its exactly equivalent kernel scores.
+    """Expose an equivalent PGM representation without recomputing it.
 
-    No primal feature matrix is materialized in this path.  Consequently its
-    observed runtime and model-state memory are deliberately reported as NaN/0
-    rather than being attributed to work performed by k-PGM.
+    The scores are copied from the exact representation selected as the numerical
+    backend. Consequently runtime and model-state memory are deliberately reported
+    as NaN/0 instead of being attributed to work performed by another method.
     """
 
     return MethodResult(
         method=method,
-        predictions=kernel_result.predictions.copy(),
-        scores=kernel_result.scores.copy(),
-        rank=kernel_result.rank,
+        predictions=reference_result.predictions.copy(),
+        scores=reference_result.scores.copy(),
+        rank=reference_result.rank,
         representation_dimension=int(representation_dimension),
         train_seconds=float("nan"),
         predict_seconds=float("nan"),
-        spectral_threshold=kernel_result.spectral_threshold,
-        minimum_eigenvalue=kernel_result.minimum_eigenvalue,
+        spectral_threshold=reference_result.spectral_threshold,
+        minimum_eigenvalue=reference_result.minimum_eigenvalue,
         model_state_bytes=0,
         maximum_feature_norm_error=float("nan"),
-        execution_mode="equivalente esatta via kernel (matrice non materializzata)",
+        execution_mode=(
+            f"equivalente esatta via {reference_result.method} "
+            "(matrice non materializzata)"
+        ),
     )
 
 
@@ -472,12 +475,14 @@ def run_all_methods_scalable(
     relative_tolerance: float = 1e-10,
     explicit_dimension_limit: int = 512,
 ) -> dict[str, MethodResult]:
-    """Run the three equivalent classifiers without requiring huge primal matrices.
+    """Run the cheapest exact backend between k-PGM and r-PGM.
 
-    k-PGM is always evaluated directly.  c-PGM and r-PGM are also evaluated with
-    their independent explicit maps whenever their representation fits the given
-    limit.  Above the limit their scores are obtained from k-PGM: this is the same
-    classifier because all three Gram matrices are exactly ``<x, z>**copies``.
+    The feature map is never reduced here.  r-PGM is selected when its symmetric
+    representation is smaller than the N x N kernel representation and fits the
+    explicit safety limit; otherwise k-PGM is selected.  The other two named
+    formulations expose copies of the same exact scores because their Gram matrices
+    are all ``<x, z>**copies``. This avoids paying for multiple identical dense
+    eigendecompositions while preserving the public c/k/r comparison.
     """
 
     X_train_f, y_train_a, X_test_f = _validate_inputs(
@@ -493,18 +498,12 @@ def run_all_methods_scalable(
     tensor_dimension = dimension**int(copies)
     symmetric_dimension = comb(dimension + int(copies) - 1, int(copies))
 
-    kernel_result = run_k_pgm(
-        X_train_f,
-        y_train_a,
-        X_test_f,
-        copies=copies,
-        classes=classes,
-        prior_mode=prior_mode,
-        relative_tolerance=relative_tolerance,
+    use_reduced = (
+        symmetric_dimension < int(X_train_f.shape[0])
+        and symmetric_dimension <= int(explicit_dimension_limit)
     )
-
-    if tensor_dimension <= int(explicit_dimension_limit):
-        c_result = run_c_pgm(
+    if use_reduced:
+        reference_result = run_r_pgm(
             X_train_f,
             y_train_a,
             X_test_f,
@@ -513,15 +512,14 @@ def run_all_methods_scalable(
             prior_mode=prior_mode,
             relative_tolerance=relative_tolerance,
         )
-    else:
-        c_result = _equivalent_result_from_kernel(
-            kernel_result,
-            method="c-PGM",
-            representation_dimension=tensor_dimension,
+        r_result = reference_result
+        k_result = _equivalent_result_from_reference(
+            reference_result,
+            method="k-PGM",
+            representation_dimension=int(X_train_f.shape[0]),
         )
-
-    if symmetric_dimension <= int(explicit_dimension_limit):
-        r_result = run_r_pgm(
+    else:
+        reference_result = run_k_pgm(
             X_train_f,
             y_train_a,
             X_test_f,
@@ -530,15 +528,21 @@ def run_all_methods_scalable(
             prior_mode=prior_mode,
             relative_tolerance=relative_tolerance,
         )
-    else:
-        r_result = _equivalent_result_from_kernel(
-            kernel_result,
+        k_result = reference_result
+        r_result = _equivalent_result_from_reference(
+            reference_result,
             method="r-PGM",
             representation_dimension=symmetric_dimension,
         )
 
+    c_result = _equivalent_result_from_reference(
+        reference_result,
+        method="c-PGM",
+        representation_dimension=tensor_dimension,
+    )
+
     return {
         "c-PGM": c_result,
-        "k-PGM": kernel_result,
+        "k-PGM": k_result,
         "r-PGM": r_result,
     }

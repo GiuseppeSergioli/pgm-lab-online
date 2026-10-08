@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 5.1.1**
+**Versione 5.2.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -16,6 +16,36 @@ L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
 training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
 circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Novità della versione 5.2.0
+
+- La classificazione usa per impostazione predefinita **tutte le feature
+  originali**. Non esiste più alcuna riduzione automatica legata alle dimensioni
+  del circuito.
+- La PCA è disponibile esclusivamente mediante l'opzione esplicita **Richiedi
+  manualmente una riduzione PCA**; l'utente sceglie il numero di componenti e la
+  trasformazione viene riappresa sul solo training set di ogni split.
+- Il backend numerico viene scelto senza modificare i dati: l'app usa **r-PGM**
+  quando la dimensione simmetrica è più piccola della matrice Gram, altrimenti
+  usa **k-PGM**. c-PGM e la formulazione non materializzata conservano gli stessi
+  score esatti senza ripetere diagonalizzazioni equivalenti.
+- Il pulsante principale valuta la PGM su più split stratificati. Il default è
+  di 10 seed consecutivi e l'interfaccia riporta media e deviazione standard di
+  balanced accuracy, accuracy, F1 macro e Kappa di Cohen, oltre al dettaglio di
+  ciascun seed.
+- La scelta automatica dell'encoding e del fattore di rescaling continua a usare
+  esclusivamente i training set, ma è ora guidata dalla **balanced accuracy**.
+- Anche il confronto con i classificatori standard è appaiato sugli stessi seed:
+  ogni modello viene ottimizzato dentro il proprio training set e tutte le
+  metriche sono presentate come media ± deviazione standard. Il full comparison
+  applica la stessa regola a ogni dataset binario.
+- Un solo split, identificato chiaramente come *seed di riferimento*, viene usato
+  per confusion matrix, dettaglio campione-per-campione e costruzione del circuito;
+  non sostituisce le statistiche multi-seed.
+
+Le sezioni successive costituiscono il changelog storico; quando descrivono una
+modalità automatica quantum-ready precedente, tale comportamento è sostituito
+dalle regole della versione 5.2.0.
 
 ## Correzione della versione 5.1.1
 

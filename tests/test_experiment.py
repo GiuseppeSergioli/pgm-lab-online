@@ -90,8 +90,9 @@ class EndToEndExperimentTests(unittest.TestCase):
         self.assertEqual(payload["raw_d"], 4)
         self.assertEqual(payload["d"], 4)
         self.assertEqual(payload["feature_transform"], "feature originali")
-        self.assertEqual(payload["execution_mode"], "scalabile_full_features")
+        self.assertEqual(payload["execution_mode"], "adattiva_k_o_r")
         self.assertEqual(payload["independent_methods"], ("k-PGM",))
+        self.assertEqual(payload["computational_backend"], "k-PGM")
         self.assertEqual(
             payload["kernel_equivalent_methods"], ("c-PGM", "r-PGM")
         )

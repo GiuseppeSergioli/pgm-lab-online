@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import (
     StratifiedKFold,
     StratifiedShuffleSplit,
@@ -145,8 +145,10 @@ def _fastest_exact_validation_accuracy(
     dimension = int(X_train.shape[1])
     tensor_dimension = dimension**copies
     symmetric_dimension = comb(dimension + copies - 1, copies)
+    # c-PGM never has a smaller representation than r-PGM. Restricting the
+    # numerical backend to k-PGM/r-PGM avoids an unnecessary tensor matrix while
+    # leaving the exact classifier unchanged.
     candidates = [
-        (tensor_dimension, "c-PGM", run_c_pgm),
         (symmetric_dimension, "r-PGM", run_r_pgm),
         (len(X_train), "k-PGM", run_k_pgm),
     ]
@@ -159,7 +161,10 @@ def _fastest_exact_validation_accuracy(
         prior_mode=prior_mode,
         relative_tolerance=relative_tolerance,
     )
-    return float(accuracy_score(y_validation, result.predictions)), method_name
+    return (
+        float(balanced_accuracy_score(y_validation, result.predictions)),
+        method_name,
+    )
 
 
 def _tuning_subset(X_train, y_train: np.ndarray, random_seed: int):
@@ -552,7 +557,10 @@ def run_experiment(
         "rescaling_factor": encoding_selection["rescaling_factor"],
         "encoding_selection": encoding_selection,
         "execution_mode": (
-            "scalabile_full_features" if scalable_full_features else "indipendente"
+            "adattiva_k_o_r" if scalable_full_features else "indipendente"
+        ),
+        "computational_backend": (
+            independent_methods[0] if len(independent_methods) == 1 else "k-PGM"
         ),
         "independent_methods": independent_methods,
         "kernel_equivalent_methods": kernel_equivalent_methods,

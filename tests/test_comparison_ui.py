@@ -39,6 +39,16 @@ class ComparisonUiTests(unittest.TestCase):
             source.index('st.session_state["full_binary_comparison"]'),
         )
 
+    def test_feature_reduction_is_manual_and_multiseed_is_default(self) -> None:
+        source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+
+        self.assertIn('"Richiedi manualmente una riduzione PCA"', source)
+        self.assertIn('key="manual_feature_reduction"', source)
+        self.assertNotIn("automatic_encoded_feature_count", source)
+        self.assertIn('"Numero di seed di valutazione"', source)
+        self.assertIn('key="evaluation_seed_count"', source)
+        self.assertIn("execute_multiseed_pgm", source)
+
 
 if __name__ == "__main__":
     unittest.main()

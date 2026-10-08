@@ -91,9 +91,14 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Gestione delle feature": "Feature handling",
     "Automatica quantum-ready (consigliata)": "Automatic quantum-ready (recommended)",
     "Tutte le feature originali": "All original features",
+    "Richiedi manualmente una riduzione PCA": "Manually request PCA reduction",
+    "Numero di feature dopo la PCA manuale": "Features after manual PCA",
+    "Riduzione manuale PCA": "Manual PCA reduction",
     "Impostazioni avanzate": "Advanced settings",
     "Quota test set": "Test-set fraction",
     "Seed dello split": "Split seed",
+    "Seed iniziale": "Initial seed",
+    "Numero di seed di valutazione": "Number of evaluation seeds",
     "Prior di classe": "Class prior",
     "Soglia spettrale relativa": "Relative spectral threshold",
     "2. Controlla le dimensioni prima del calcolo": "2. Check dimensions before running",
@@ -112,6 +117,8 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Fattore di rescaling t": "Rescaling factor t",
     "Non applicabile": "Not applicable",
     "Accuratezza di validazione": "Validation accuracy",
+    "Balanced accuracy di validazione": "Validation balanced accuracy",
+    "Balanced accuracy validazione": "Validation balanced accuracy",
     "Vantaggio sulla baseline": "Gain over baseline",
     "Confronto degli encoding sul training set": (
         "Training-set encoding comparison"
@@ -129,6 +136,12 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     ),
     "Esegui i classificatori (circuito non materializzato)": (
         "Run the classifiers (circuit not materialized)"
+    ),
+    "Esegui la valutazione multi-seed e costruisci il circuito": (
+        "Run multi-seed evaluation and build the circuit"
+    ),
+    "Esegui la valutazione multi-seed (circuito non materializzato)": (
+        "Run multi-seed evaluation (circuit not materialized)"
     ),
     "3. Risultati": "3. Results",
     "3. Confronto con altri classificatori": (
@@ -169,7 +182,20 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Classificatore": "Classifier",
     "Balanced accuracy PGM": "PGM balanced accuracy",
     "Differenza PGM − confronto": "PGM − comparator difference",
+    "Differenza media PGM − confronto": "Mean PGM − comparator difference",
     "Intervallo bootstrap 95%": "95% bootstrap interval",
+    "Intervallo appaiato 95%": "95% paired interval",
+    "Numero di seed": "Number of seeds",
+    "Risultati per ciascun seed": "Results for each seed",
+    "Backend PGM": "PGM backend",
+    "Balanced accuracy confronto": "Comparator balanced accuracy",
+    "Matrici di confusione e tuning del classificatore sul seed di riferimento": (
+        "Confusion matrices and classifier tuning on the reference seed"
+    ),
+    "Dettaglio della valutazione multi-seed": "Multi-seed evaluation details",
+    "#### Classificazione test (calcolo classico adattivo)": (
+        "#### Test classification (adaptive classical computation)"
+    ),
     "Matrici di confusione e tuning del classificatore": (
         "Confusion matrices and classifier tuning"
     ),
@@ -474,39 +500,43 @@ NORMALIZED_TRANSLATIONS: dict[str, str] = {
     ),
     (
         "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
-        "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, prior, "
-        "split e soglia spettrale. Sul solo training set, l'app sceglie automaticamente "
-        "tra encoding in ampiezza normalizzato ed encoding stereografico, ottimizzandone "
-        "il fattore di rescaling. Dopo il training finale costruisce anche il circuito "
-        "quantistico della PGM mediante una dilatazione di Naimark."
+        "La classificazione conserva tutte le feature salvo riduzione PCA richiesta "
+        "esplicitamente dall'utente e usa il backend esatto meno oneroso tra k-PGM e "
+        "r-PGM. Le prestazioni sono aggregate su più split stratificati mediante media "
+        "e deviazione standard. Sul solo training set, l'app sceglie l'encoding e il "
+        "fattore di rescaling; quando le dimensioni lo consentono costruisce anche il "
+        "circuito quantistico della PGM mediante una dilatazione di Naimark."
     ): (
         "Reproducible comparison of **c-PGM**, **k-PGM**, and **r-PGM (Rc-PGM)**. "
-        "The three classifiers use different representations with the same data, "
-        "class priors, train/test split, and spectral threshold. Using training data "
-        "only, the app automatically selects either normalized amplitude encoding or "
-        "stereographic encoding and optimizes its rescaling factor. After final "
-        "training, the app also builds the quantum circuit implementing the PGM "
-        "through a Naimark dilation."
+        "Classification retains every feature unless the user explicitly requests "
+        "PCA reduction, and it uses the least expensive exact backend between k-PGM "
+        "and r-PGM. Performance is aggregated over several stratified splits using "
+        "mean and standard deviation. Using training data only, the app selects the "
+        "encoding and rescaling factor; when dimensions permit, it also builds the "
+        "PGM quantum circuit through a Naimark dilation."
     ),
     (
         "- **c-PGM** costruisce esplicitamente il tensore di dimensione $d^c$. "
         "- **k-PGM** usa il kernel omogeneo $\\langle x,z\\rangle^c$ e una matrice "
         "$N\\times N$. - **r-PGM** usa la base simmetrica minima di dimensione "
         "$d_{sym}=\\binom{d+c-1}{c}$. L'equivalenza teorica riguarda gli score di "
-        "classe. L'app verifica sia lo scarto massimo tra gli score sia l'identità "
-        "delle predizioni, usando la stessa regola deterministica in caso di pareggio "
-        "numerico. Il termine di completamento $P_{ker(\\sigma)}/l$ viene omesso dagli "
-        "score perché è uguale per ogni classe e non modifica l'argmax, come osservato "
-        "nell'appendice del paper."
+        "classe. Durante l'uso l'app sceglie la diagonalizzazione meno onerosa tra "
+        "k-PGM e r-PGM e ricostruisce gli score delle altre formulazioni tramite la "
+        "medesima Gram matrix, senza duplicare il costo. La suite numerica verifica "
+        "separatamente l'equivalenza delle tre mappe. Il termine di completamento "
+        "$P_{ker(\\sigma)}/l$ viene omesso dagli score perché è uguale per ogni classe "
+        "e non modifica l'argmax."
     ): (
         "- **c-PGM** explicitly builds the tensor representation of dimension $d^c$.\n"
         "- **k-PGM** uses the homogeneous kernel $\\langle x,z\\rangle^c$ and an "
         "$N\\times N$ matrix.\n"
         "- **r-PGM** uses the minimal symmetric basis of dimension "
         "$d_{sym}=\\binom{d+c-1}{c}$.\n\n"
-        "The theoretical equivalence concerns the class scores. The app checks both "
-        "the maximum score discrepancy and prediction identity, using the same "
-        "deterministic rule for numerical ties. The completion term "
+        "The theoretical equivalence concerns the class scores. At runtime, the app "
+        "selects the less expensive eigendecomposition between k-PGM and r-PGM and "
+        "reconstructs the other formulations' scores through the same Gram matrix, "
+        "without duplicating the cost. The numerical suite independently verifies "
+        "the equivalence of the three maps. The completion term "
         "$P_{ker(\\sigma)}/l$ is omitted because it is identical for every class and "
         "does not change the argmax."
     ),
@@ -535,6 +565,47 @@ NORMALIZED_TRANSLATIONS: dict[str, str] = {
 # class labels, or backend names are only known at runtime.  Longer fragments are
 # applied first to prevent partial replacements.
 PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
+    ("Disattivata per impostazione predefinita: il PGM usa tutte le feature. Se la attivi, scegli tu quante componenti mantenere; la PCA viene appresa esclusivamente sul training set di ciascun seed.", "Disabled by default: the PGM uses every feature. If enabled, you choose how many components to retain; PCA is fitted exclusively on each seed's training set."),
+    ("Ogni seed genera un nuovo split stratificato. Sono riportate media e deviazione standard; nessun seed viene scartato.", "Each seed creates a new stratified split. Mean and standard deviation are reported; no seed is discarded."),
+    ("Nessuna feature selection automatica: il PGM usa tutte le", "No automatic feature selection: the PGM uses all"),
+    ("feature originali. L'encoding stereografico aggiunge soltanto la propria coordinata geometrica.", "original features. Stereographic encoding only adds its geometric coordinate."),
+    ("Riduzione richiesta dall'utente: la PCA conserva", "User-requested reduction: PCA retains"),
+    ("feature. Viene adattata separatamente sul solo training set di ciascun seed; il test set non partecipa mai alla selezione.", "features. It is fitted separately on each seed's training set only; the test set never participates in selection."),
+    ("La classificazione resta disponibile senza ridurre le feature. Se desideri anche il circuito esatto, puoi richiedere esplicitamente una PCA manuale e scegliere il numero di componenti.", "Classification remains available without reducing features. If you also need the exact circuit, you can explicitly request manual PCA and choose the component count."),
+    ("Per ottenere il circuito esatto esportabile puoi richiedere manualmente una PCA con meno componenti oppure ridurre il numero di copie.", "To obtain the exact exportable circuit, you can manually request PCA with fewer components or reduce the number of copies."),
+    ("Backend esatto previsto:", "Expected exact backend:"),
+    ("Nessuna feature viene eliminata automaticamente.", "No feature is removed automatically."),
+    ("Picco prudenziale stimato:", "Conservative peak estimate:"),
+    ("Il backend esatto meno oneroso", "The least expensive exact backend"),
+    ("supera il limite prudenziale selezionato. Aumenta il budget soltanto se il computer dispone realmente della RAM, oppure richiedi manualmente una riduzione PCA.", "exceeds the selected conservative limit. Increase the budget only if the computer actually has that RAM, or manually request PCA reduction."),
+    ("Valutazione PGM su", "PGM evaluation across"),
+    ("seed in corso...", "seeds in progress..."),
+    ("Questa sezione è indipendente dal pulsante principale. Se la abiliti, confronta la PGM con un classificatore standard sugli stessi split stratificati e sugli stessi seed. Il modello standard viene ottimizzato con una ricerca compatta sul solo training set; per ogni metrica vengono riportate media e deviazione standard.", "This section is independent of the main run button. When enabled, it compares the PGM with a standard classifier on the same stratified splits and seeds. The standard model is tuned with a compact search on training data only; mean and standard deviation are reported for every metric."),
+    ("Nel confronto, PGM indica la configurazione scelta automaticamente sul training set (encoding e, se applicabile, fattore t). c-PGM, k-PGM e r-PGM hanno la stessa decisione teorica; il calcolo usa il backend esatto meno oneroso tra k-PGM e r-PGM, senza riduzione automatica delle feature.", "In this comparison, PGM denotes the configuration selected automatically on training data (encoding and, when applicable, factor t). c-PGM, k-PGM, and r-PGM have the same theoretical decision; computation uses the least expensive exact backend between k-PGM and r-PGM, without automatic feature reduction."),
+    ("Confronto appaiato su", "Paired comparison across"),
+    ("Il confronto corrente usa", "The current comparison uses"),
+    ("seed e fino a 3 fold di tuning interni per ciascun training set. Il full comparison usa gli stessi seed e 2 fold per contenere i tempi; i download OpenML sono memorizzati in cache.", "seeds and up to 3 internal tuning folds for each training set. The full comparison uses the same seeds and 2 folds to limit runtime; OpenML downloads are cached."),
+    ("L'intervallo appaiato multi-seed della differenza di balanced accuracy è interamente positivo.", "The paired multi-seed interval for the balanced-accuracy difference is entirely positive."),
+    ("L'intervallo appaiato multi-seed della differenza di balanced accuracy è interamente negativo.", "The paired multi-seed interval for the balanced-accuracy difference is entirely negative."),
+    ("l'intervallo appaiato della differenza include zero, quindi non viene dichiarato un vincitore.", "the paired interval for the difference includes zero, so no winner is declared."),
+    ("Media ± deviazione standard su", "Mean ± standard deviation over"),
+    ("split stratificati appaiati. Ogni modello è ottimizzato esclusivamente sul training del relativo seed; nessun risultato viene scartato.", "paired stratified splits. Each model is tuned exclusively on the corresponding seed's training set; no result is discarded."),
+    ("media ± dev. std.", "mean ± std. dev."),
+    ("seed di riferimento", "reference seed"),
+    ("Valutazione esterna su", "Outer evaluation over"),
+    ("split stratificati", "stratified splits"),
+    ("Sono inclusi tutti i risultati; lo split con seed", "All results are included; the split with seed"),
+    ("Sono inclusi tutti i risultati; le statistiche sono comuni a c-PGM, k-PGM e r-PGM perché le predizioni sono esattamente equivalenti.", "All results are included; the statistics are shared by c-PGM, k-PGM, and r-PGM because their predictions are exactly equivalent."),
+    ("Lo split con seed", "The split with seed"),
+    ("è usato sotto soltanto per matrici di confusione, dettaglio dei campioni e circuito.", "is used below only for confusion matrices, sample details, and the circuit."),
+    ("Backend adattivo attivo:", "Adaptive backend active:"),
+    ("Una formulazione calcolata esplicitamente non coincide con il backend esatto scelto su tutti i campioni.", "An explicitly computed formulation does not match the selected exact backend on every sample."),
+    ("equivalente esatta via", "exactly equivalent via"),
+    ("matrice non materializzata", "matrix not materialized"),
+    ("è stato calcolato direttamente;", "was computed directly;"),
+    ("sono stati valutati mediante l'identità esatta delle Gram matrix con", "were evaluated through the exact Gram-matrix identity with"),
+    ("senza costruire le rispettive matrici. Gli zeri negli scarti che coinvolgono questi metodi derivano quindi dall'equivalenza matematica, non da tre diagonalizzazioni duplicate.", "without constructing their matrices. Zero discrepancies involving these methods therefore come from mathematical equivalence, not from three duplicate eigendecompositions."),
+    ("WIN o LOSS sono assegnati soltanto quando l'intervallo Student-t al 95% delle differenze appaiate tra seed esclude zero; negli altri casi il risultato è TIE. Le celle riportano medie calcolate su tutti i seed.", "WIN or LOSS is assigned only when the 95% Student-t interval of paired seed differences excludes zero; otherwise the result is TIE. Cells report means over all seeds."),
     ("Nel confronto, PGM indica la configurazione scelta automaticamente sul training set (encoding e, se applicabile, fattore t). c-PGM, k-PGM e r-PGM hanno la stessa decisione teorica; per le metriche viene usata k-PGM.", "In this comparison, PGM denotes the configuration selected automatically on the training set (encoding and, when applicable, factor t). c-PGM, k-PGM, and r-PGM have the same theoretical decision; k-PGM is used to compute the metrics."),
     ("· PGM equivalenti, benchmark statistici e integrazione quantistica protetta", "· equivalent PGMs, statistical benchmarks, and protected quantum integration"),
     ("Multi-Layer Perceptron feed-forward con regolarizzazione.", "Regularized feed-forward Multi-Layer Perceptron."),

@@ -75,18 +75,19 @@ class InternationalizationTests(unittest.TestCase):
     def test_long_public_intro_is_fully_translated(self) -> None:
         intro = (
             "Confronto riproducibile tra **c-PGM**, **k-PGM** e **r-PGM (Rc-PGM)**. "
-            "I tre calcoli usano rappresentazioni indipendenti, ma gli stessi dati, "
-            "prior, split e soglia spettrale. Sul solo training set, l'app sceglie "
-            "automaticamente tra encoding in ampiezza normalizzato ed encoding "
-            "stereografico, ottimizzandone il fattore di rescaling. Dopo il training "
-            "finale costruisce anche il circuito quantistico della PGM mediante una "
-            "dilatazione di Naimark."
+            "La classificazione conserva tutte le feature salvo riduzione PCA richiesta "
+            "esplicitamente dall'utente e usa il backend esatto meno oneroso tra k-PGM e "
+            "r-PGM. Le prestazioni sono aggregate su più split stratificati mediante media "
+            "e deviazione standard. Sul solo training set, l'app sceglie l'encoding e il "
+            "fattore di rescaling; quando le dimensioni lo consentono costruisce anche il "
+            "circuito quantistico della PGM mediante una dilatazione di Naimark."
         )
         translated = translate_text(intro, "en")
         self.assertIn("Reproducible comparison", translated)
         self.assertIn("Naimark dilation", translated)
         self.assertNotIn("Confronto riproducibile", translated)
-        self.assertIn("automatically selects", translated)
+        self.assertIn("retains every feature", translated)
+        self.assertIn("mean and standard deviation", translated)
 
     def test_dataframe_headers_index_and_text_cells_are_localized(self) -> None:
         frame = pd.DataFrame(
@@ -108,8 +109,8 @@ class InternationalizationTests(unittest.TestCase):
         backend = _FakeContext()
         localized = LocalizedStreamlit(backend, lambda: "en")
         options = [
-            "Automatica quantum-ready (consigliata)",
             "Tutte le feature originali",
+            "Riduzione manuale PCA",
         ]
         selected = localized.radio("Gestione delle feature", options)
 
@@ -118,7 +119,7 @@ class InternationalizationTests(unittest.TestCase):
         self.assertEqual(call["label"], "Feature handling")
         self.assertEqual(
             call["formatted"],
-            ["Automatic quantum-ready (recommended)", "All original features"],
+            ["All original features", "Manual PCA reduction"],
         )
         self.assertEqual(call["options"], options)
 
@@ -136,7 +137,7 @@ class InternationalizationTests(unittest.TestCase):
 
     def test_app_has_two_flags_and_no_internal_neumark_note(self) -> None:
         source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "5.1.1"', source)
+        self.assertIn('APP_VERSION = "5.2.0"', source)
         self.assertIn('"🇮🇹"', source)
         self.assertIn('"🇬🇧"', source)
         self.assertIn('LANGUAGE_SESSION_KEY = "pgm_interface_language"', source)
