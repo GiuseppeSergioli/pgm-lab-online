@@ -139,7 +139,7 @@ def paired_seed_summary(
     *,
     metric: str = "balanced_accuracy",
     confidence_level: float = 0.95,
-) -> dict[str, float | int | str]:
+) -> dict[str, float | int | str | bool]:
     """Summarize a paired metric difference over repeated outer splits.
 
     The confidence interval is a two-sided Student-t interval over the paired
@@ -175,8 +175,12 @@ def paired_seed_summary(
     else:
         winner = "tie"
     tolerance = 1e-12
+    pgm_wins = int(np.sum(differences > tolerance))
+    competitor_wins = int(np.sum(differences < -tolerance))
+    exact_ties = int(np.sum(np.abs(differences) <= tolerance))
+    comparison_count = int(pgm.size)
     return {
-        "count": int(pgm.size),
+        "count": comparison_count,
         "pgm_mean": float(np.mean(pgm)),
         "pgm_std": float(np.std(pgm, ddof=1)),
         "competitor_mean": float(np.mean(competitor)),
@@ -186,8 +190,12 @@ def paired_seed_summary(
         "confidence_lower": float(lower),
         "confidence_upper": float(upper),
         "confidence_level": float(confidence_level),
-        "pgm_wins": int(np.sum(differences > tolerance)),
-        "competitor_wins": int(np.sum(differences < -tolerance)),
-        "ties": int(np.sum(np.abs(differences) <= tolerance)),
+        "pgm_wins": pgm_wins,
+        "competitor_wins": competitor_wins,
+        "ties": exact_ties,
+        "pgm_win_rate": pgm_wins / comparison_count,
+        "competitor_win_rate": competitor_wins / comparison_count,
+        "tie_rate": exact_ties / comparison_count,
+        "exact_tie": exact_ties == comparison_count,
         "winner": winner,
     }

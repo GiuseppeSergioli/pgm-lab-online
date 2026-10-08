@@ -120,7 +120,9 @@ _st.markdown(
         color: #202531;
       }
       .block-container {
-        width: 100%; max-width: 1320px; padding-top: 2rem; padding-bottom: 3rem;
+        width: 100%; max-width: 1320px;
+        padding-top: calc(4.5rem + env(safe-area-inset-top));
+        padding-bottom: 3rem;
       }
       .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
       .stApp [data-testid="stMarkdownContainer"],
@@ -166,7 +168,9 @@ _st.markdown(
         white-space: normal; overflow-wrap: anywhere;
       }
       div.stButton > button[kind="primary"] p {color: #ffffff;}
-      .st-key-language_switcher {margin-bottom: -.65rem;}
+      .st-key-language_switcher {
+        margin-bottom: -.65rem; padding-top: .2rem; overflow: visible;
+      }
       .st-key-language_switcher div.stButton > button {
         min-width: 3rem; min-height: 2.45rem; padding: .25rem .65rem;
         font-size: 1.25rem; line-height: 1;
@@ -185,7 +189,8 @@ _st.markdown(
       /* Tablet: columns wrap instead of being squeezed beyond readability. */
       @media (max-width: 900px) {
         .block-container {
-          max-width: 100%; padding: 1.25rem 1rem 2.5rem;
+          max-width: 100%;
+          padding: calc(4.25rem + env(safe-area-inset-top)) 1rem 2.5rem;
         }
         [data-testid="stHorizontalBlock"] {
           flex-wrap: wrap; gap: .75rem;
@@ -201,7 +206,8 @@ _st.markdown(
       /* Phone: a single readable column, touch-sized controls and compact type. */
       @media (max-width: 640px) {
         .block-container {
-          padding-top: .9rem; padding-bottom: 5rem;
+          padding-top: calc(4.25rem + env(safe-area-inset-top));
+          padding-bottom: 5rem;
           padding-left: max(.75rem, env(safe-area-inset-left));
           padding-right: max(.75rem, env(safe-area-inset-right));
         }
@@ -254,7 +260,7 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "5.2.1"
+APP_VERSION = "5.2.2"
 EXPERIMENT_CACHE_SCHEMA = "5.2.1-backend-compatibility"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
@@ -445,6 +451,31 @@ def aggregate_seed_comparison(
         }
     )
     return reference
+
+
+def seed_outcome_rates(
+    seed_summary: dict,
+) -> tuple[float, float, float, bool]:
+    """Read seed-level percentages with compatibility for 5.2.1 summaries."""
+
+    count = int(seed_summary["count"])
+    if count < 1:
+        raise ValueError("Il riepilogo non contiene seed validi.")
+    pgm_rate = float(
+        seed_summary.get("pgm_win_rate", seed_summary["pgm_wins"] / count)
+    )
+    competitor_rate = float(
+        seed_summary.get(
+            "competitor_win_rate", seed_summary["competitor_wins"] / count
+        )
+    )
+    tie_rate = float(
+        seed_summary.get("tie_rate", seed_summary["ties"] / count)
+    )
+    exact_tie = bool(
+        seed_summary.get("exact_tie", int(seed_summary["ties"]) == count)
+    )
+    return pgm_rate, competitor_rate, tie_rate, exact_tie
 
 
 def pgm_seed_record(payload: dict, seed: int) -> dict:
@@ -801,6 +832,12 @@ def render_classifier_comparison(
 
     summary_columns = st.columns(4)
     if seed_summary is not None:
+        (
+            pgm_seed_win_rate,
+            competitor_seed_win_rate,
+            exact_seed_tie_rate,
+            _,
+        ) = seed_outcome_rates(seed_summary)
         summary_columns[0].metric(
             "Balanced accuracy PGM",
             f"{100.0 * seed_summary['pgm_mean']:.2f}% ± "
@@ -826,6 +863,89 @@ def render_classifier_comparison(
             "stratificati appaiati. Ogni modello è ottimizzato esclusivamente sul "
             "training del relativo seed; nessun risultato viene scartato."
         )
+        seed_outcome_rows = [
+            {
+                "Esito": translate_text("PGM superiore", current_language()),
+                "Percentuale": 100.0 * pgm_seed_win_rate,
+                "Gruppo": "seed",
+            },
+            {
+                "Esito": translate_text(
+                    f"{competitor_name} superiore", current_language()
+                ),
+                "Percentuale": 100.0 * competitor_seed_win_rate,
+                "Gruppo": "seed",
+            },
+            {
+                "Esito": translate_text(
+                    "Esattamente uguali", current_language()
+                ),
+                "Percentuale": 100.0 * exact_seed_tie_rate,
+                "Gruppo": "seed",
+            },
+        ]
+        st.vega_lite_chart(
+            pd.DataFrame(seed_outcome_rows),
+            {
+                "mark": {"type": "bar", "cornerRadius": 4},
+                "encoding": {
+                    "x": {
+                        "field": "Percentuale",
+                        "type": "quantitative",
+                        "stack": "zero",
+                        "title": translate_text(
+                            "Percentuale dei seed", current_language()
+                        ),
+                        "scale": {"domain": [0, 100]},
+                    },
+                    "y": {"field": "Gruppo", "axis": None},
+                    "color": {
+                        "field": "Esito",
+                        "type": "nominal",
+                        "scale": {
+                            "domain": [row["Esito"] for row in seed_outcome_rows],
+                            "range": ["#16805B", "#C44949", "#7D8792"],
+                        },
+                        "title": translate_text("Esito", current_language()),
+                    },
+                    "tooltip": [
+                        {"field": "Esito", "type": "nominal"},
+                        {
+                            "field": "Percentuale",
+                            "type": "quantitative",
+                            "format": ".1f",
+                            "title": translate_text(
+                                "Percentuale dei seed", current_language()
+                            ),
+                        },
+                    ],
+                },
+                "height": 48,
+            },
+            width="stretch",
+        )
+        if current_language() == "en":
+            st.caption(
+                f"Split-by-split comparison: PGM has higher balanced accuracy on "
+                f"{100.0 * pgm_seed_win_rate:.1f}% of seeds, "
+                f"{competitor_name} on "
+                f"{100.0 * competitor_seed_win_rate:.1f}%, and the "
+                f"values are exactly equal on "
+                f"{100.0 * exact_seed_tie_rate:.1f}%. An overall "
+                "inconclusive outcome is not a tie: it means the confidence "
+                "interval for the difference includes zero."
+            )
+        else:
+            st.caption(
+                f"Confronto split per split: PGM ottiene una balanced accuracy più "
+                f"alta nel {100.0 * pgm_seed_win_rate:.1f}% dei seed, "
+                f"{competitor_name} nel "
+                f"{100.0 * competitor_seed_win_rate:.1f}% e i valori "
+                f"sono esattamente uguali nel "
+                f"{100.0 * exact_seed_tie_rate:.1f}%. Un esito complessivo "
+                "non conclusivo non è un pareggio: indica che l'intervallo di "
+                "confidenza della differenza include zero."
+            )
     else:
         summary_columns[0].metric(
             "Balanced accuracy PGM",
@@ -1046,10 +1166,14 @@ def render_full_binary_comparison(
     *,
     competitor_name: str,
 ) -> None:
-    competitor_name = translate_text(
-        competitor_name, current_language()
+    language = current_language()
+    competitor_name = translate_text(competitor_name, language)
+    pgm_win_label = translate_text("Vittoria PGM confermata", language)
+    competitor_win_label = translate_text(
+        f"Vittoria {competitor_name} confermata", language
     )
-    tie_label = translate_text("Pareggio", current_language())
+    inconclusive_label = translate_text("Non conclusivo", language)
+    exact_tie_label = translate_text("Pareggio esatto", language)
     successful = [row for row in rows if not row.get("error")]
     failed = [row for row in rows if row.get("error")]
     if not successful:
@@ -1063,46 +1187,95 @@ def render_full_binary_comparison(
 
     win_count = sum(row["winner"] == "pgm" for row in successful)
     loss_count = sum(row["winner"] == "competitor" for row in successful)
-    tie_count = sum(row["winner"] == "tie" for row in successful)
+    inconclusive_count = sum(row["winner"] == "tie" for row in successful)
+    exact_tie_count = sum(
+        row["winner"] == "tie" and bool(row.get("exact_tie", False))
+        for row in successful
+    )
+
+    def count_and_percentage(count: int) -> str:
+        return f"{count} ({100.0 * count / len(successful):.1f}%)"
+
     aggregate_columns = st.columns(4)
     aggregate_columns[0].metric("Dataset completati", len(successful))
-    aggregate_columns[1].metric("Vittorie PGM", win_count)
-    aggregate_columns[2].metric(f"Vittorie {competitor_name}", loss_count)
-    aggregate_columns[3].metric("Pareggi / non conclusivi", tie_count)
+    aggregate_columns[1].metric(
+        "Vittorie PGM", count_and_percentage(win_count)
+    )
+    aggregate_columns[2].metric(
+        f"Vittorie {competitor_name}", count_and_percentage(loss_count)
+    )
+    aggregate_columns[3].metric(
+        "Risultati non conclusivi",
+        count_and_percentage(inconclusive_count),
+    )
+    if exact_tie_count:
+        if language == "en":
+            st.caption(
+                f"Among the {inconclusive_count} inconclusive results, "
+                f"{exact_tie_count} are exact ties on every seed."
+            )
+        else:
+            st.caption(
+                f"Tra i {inconclusive_count} risultati non conclusivi, "
+                f"{exact_tie_count} sono pareggi esatti su ogni seed."
+            )
 
     matrix_records = []
     detail_records = []
     chart_records = []
+    outcome_state_by_dataset: dict[str, str] = {}
     for row in successful:
-        dataset_name = translate_text(row["dataset"], current_language())
+        dataset_name = translate_text(row["dataset"], language)
+        pgm_seed_rate = float(row.get("pgm_win_rate", 0.0))
+        competitor_seed_rate = float(row.get("competitor_win_rate", 0.0))
+        exact_seed_tie_rate = float(row.get("tie_rate", 0.0))
         if row["winner"] == "pgm":
-            pgm_cell, competitor_cell, outcome = "WIN", "LOSS", "PGM"
+            outcome = pgm_win_label
+            outcome_state = "pgm"
         elif row["winner"] == "competitor":
-            pgm_cell, competitor_cell, outcome = (
-                "LOSS",
-                "WIN",
-                competitor_name,
-            )
+            outcome = competitor_win_label
+            outcome_state = "competitor"
+        elif bool(row.get("exact_tie", False)):
+            outcome = exact_tie_label
+            outcome_state = "exact_tie"
         else:
-            pgm_cell, competitor_cell, outcome = "TIE", "TIE", tie_label
+            outcome = inconclusive_label
+            outcome_state = "inconclusive"
+        outcome_state_by_dataset[dataset_name] = outcome_state
+
+        pgm_display = (
+            f"{100.0 * row['pgm_balanced_accuracy']:.2f}% ± "
+            f"{100.0 * row['pgm_balanced_accuracy_std']:.2f}%"
+        )
+        competitor_display = (
+            f"{100.0 * row['competitor_balanced_accuracy']:.2f}% ± "
+            f"{100.0 * row['competitor_balanced_accuracy_std']:.2f}%"
+        )
+        difference_display = (
+            f"{100.0 * row['difference']:+.2f} pp · "
+            f"IC [{100.0 * row['confidence_lower']:+.2f}, "
+            f"{100.0 * row['confidence_upper']:+.2f}]"
+        )
+        seed_display = (
+            f"PGM {100.0 * pgm_seed_rate:.1f}% · "
+            f"{competitor_name} {100.0 * competitor_seed_rate:.1f}% · "
+            f"= {100.0 * exact_seed_tie_rate:.1f}%"
+        )
         matrix_records.append(
             {
                 "Dataset": dataset_name,
-                "PGM": pgm_cell,
-                competitor_name: competitor_cell,
+                "PGM — balanced accuracy": pgm_display,
+                f"{competitor_name} — balanced accuracy": competitor_display,
+                "Differenza PGM − confronto (IC 95%)": difference_display,
+                "Seed favorevoli PGM / confronto": seed_display,
+                "Esito statistico": outcome,
             }
         )
         detail_records.append(
             {
                 "Dataset": dataset_name,
-                "Balanced accuracy PGM": (
-                    f"{100.0 * row['pgm_balanced_accuracy']:.2f}% ± "
-                    f"{100.0 * row['pgm_balanced_accuracy_std']:.2f}"
-                ),
-                f"Balanced accuracy {competitor_name}": (
-                    f"{100.0 * row['competitor_balanced_accuracy']:.2f}% ± "
-                    f"{100.0 * row['competitor_balanced_accuracy_std']:.2f}"
-                ),
+                "Balanced accuracy PGM": pgm_display,
+                f"Balanced accuracy {competitor_name}": competitor_display,
                 "Differenza PGM − confronto": (
                     f"{100.0 * row['difference']:+.2f} ± "
                     f"{100.0 * row['difference_std']:.2f} punti %"
@@ -1112,7 +1285,14 @@ def render_full_binary_comparison(
                     f"{100.0 * row['confidence_upper']:+.2f}] punti %"
                 ),
                 "Numero di seed": row["seed_count"],
-                "Vincitore": outcome,
+                "Seed PGM superiore": f"{100.0 * pgm_seed_rate:.1f}%",
+                f"Seed {competitor_name} superiore": (
+                    f"{100.0 * competitor_seed_rate:.1f}%"
+                ),
+                "Seed esattamente uguali": (
+                    f"{100.0 * exact_seed_tie_rate:.1f}%"
+                ),
+                "Esito statistico": outcome,
                 "Encoding PGM": (
                     "Stereografico + encoding in ampiezza"
                     if row["encoding"] == "stereographic"
@@ -1129,37 +1309,70 @@ def render_full_binary_comparison(
             {
                 "dataset": dataset_name,
                 "delta": 100.0 * row["difference"],
+                "ci_lower": 100.0 * row["confidence_lower"],
+                "ci_upper": 100.0 * row["confidence_upper"],
+                "pgm_seed_rate": 100.0 * pgm_seed_rate,
+                "competitor_seed_rate": 100.0 * competitor_seed_rate,
                 "outcome": outcome,
             }
         )
 
-    st.markdown("#### Matrice WIN / TIE / LOSS")
-    matrix = pd.DataFrame(matrix_records).set_index("Dataset")
-    matrix.index.name = translate_text("Dataset", current_language())
+    st.markdown("#### Confronto quantitativo WIN / LOSS")
+    matrix = localize_dataframe(
+        pd.DataFrame(matrix_records).set_index("Dataset"), language
+    )
+    matrix.index.name = translate_text("Dataset", language)
 
-    def matrix_color(value):
-        if value == "WIN":
-            return "background-color: #d9f2e6; color: #155d3a; font-weight: 700"
-        if value == "LOSS":
-            return "background-color: #fde2e2; color: #8a1c1c; font-weight: 700"
-        return "background-color: #edf1f7; color: #42526b; font-weight: 700"
+    green_style = (
+        "background-color: #d9f2e6; color: #155d3a; font-weight: 700"
+    )
+    red_style = (
+        "background-color: #fde2e2; color: #8a1c1c; font-weight: 700"
+    )
+    amber_style = (
+        "background-color: #fff1cc; color: #795400; font-weight: 700"
+    )
+    gray_style = (
+        "background-color: #edf1f7; color: #42526b; font-weight: 700"
+    )
 
-    st.dataframe(matrix.style.map(matrix_color), width="stretch")
+    def matrix_row_colors(row: pd.Series) -> list[str]:
+        state = outcome_state_by_dataset.get(str(row.name), "inconclusive")
+        styles = [""] * len(row)
+        if state == "pgm":
+            styles[0], styles[1] = green_style, red_style
+            styles[2], styles[4] = green_style, green_style
+        elif state == "competitor":
+            styles[0], styles[1] = red_style, green_style
+            styles[2], styles[4] = red_style, red_style
+        elif state == "exact_tie":
+            styles = [gray_style] * len(row)
+        else:
+            styles[2], styles[4] = amber_style, amber_style
+        return styles
+
+    st.dataframe(
+        matrix.style.apply(matrix_row_colors, axis=1),
+        width="stretch",
+    )
     st.caption(
-        "WIN o LOSS sono assegnati soltanto quando l'intervallo Student-t al 95% "
-        "delle differenze appaiate tra seed esclude zero; negli altri casi il "
-        "risultato è TIE. Le celle riportano medie calcolate su tutti i seed."
+        "Una vittoria è confermata soltanto quando l'intervallo Student-t al 95% "
+        "delle differenze appaiate tra seed esclude zero. 'Non conclusivo' non "
+        "significa che i risultati sono uguali: indica evidenza insufficiente per "
+        "dichiarare un vincitore. 'Pareggio esatto' è riservato ai casi in cui le "
+        "balanced accuracy coincidono su ogni seed entro la tolleranza numerica. "
+        "Le percentuali mostrano in quanti seed ciascun metodo è risultato superiore."
     )
 
     outcome_domain = [
-        "PGM",
-        competitor_name,
-        tie_label,
+        pgm_win_label,
+        competitor_win_label,
+        inconclusive_label,
+        exact_tie_label,
     ]
     st.vega_lite_chart(
         pd.DataFrame(chart_records),
         {
-            "mark": {"type": "bar", "cornerRadiusEnd": 4},
             "encoding": {
                 "y": {
                     "field": "dataset",
@@ -1167,49 +1380,128 @@ def render_full_binary_comparison(
                     "sort": "-x",
                     "title": None,
                 },
-                "x": {
-                    "field": "delta",
-                    "type": "quantitative",
-                    "title": translate_text(
-                        "Differenza balanced accuracy PGM − confronto (punti %)",
-                        current_language(),
-                    ),
-                },
-                "color": {
-                    "field": "outcome",
-                    "type": "nominal",
-                    "title": translate_text("Vincitore", current_language()),
-                    "scale": {
-                        "domain": outcome_domain,
-                        "range": ["#6F42C1", "#00A6A6", "#90A4AE"],
-                    },
-                },
-                "tooltip": [
-                    {
-                        "field": "dataset",
-                        "type": "nominal",
-                        "title": translate_text("Dataset", current_language()),
-                    },
-                    {
-                        "field": "delta",
-                        "type": "quantitative",
-                        "format": "+.2f",
-                        "title": translate_text(
-                            "Differenza PGM − confronto", current_language()
-                        ),
-                    },
-                    {
-                        "field": "outcome",
-                        "type": "nominal",
-                        "title": translate_text(
-                            "Vincitore", current_language()
-                        ),
-                    },
-                ],
             },
-            "height": max(320, 28 * len(successful)),
+            "layer": [
+                {
+                    "mark": {"type": "bar", "cornerRadiusEnd": 4},
+                    "encoding": {
+                        "x": {
+                            "field": "delta",
+                            "type": "quantitative",
+                            "title": translate_text(
+                                "Differenza balanced accuracy PGM − confronto (punti %)",
+                                language,
+                            ),
+                        },
+                        "color": {
+                            "field": "outcome",
+                            "type": "nominal",
+                            "title": translate_text("Esito statistico", language),
+                            "scale": {
+                                "domain": outcome_domain,
+                                "range": [
+                                    "#16805B",
+                                    "#C44949",
+                                    "#D89C29",
+                                    "#7D8792",
+                                ],
+                            },
+                        },
+                        "tooltip": [
+                            {
+                                "field": "dataset",
+                                "type": "nominal",
+                                "title": translate_text("Dataset", language),
+                            },
+                            {
+                                "field": "delta",
+                                "type": "quantitative",
+                                "format": "+.2f",
+                                "title": translate_text(
+                                    "Differenza PGM − confronto", language
+                                ),
+                            },
+                            {
+                                "field": "ci_lower",
+                                "type": "quantitative",
+                                "format": "+.2f",
+                                "title": translate_text(
+                                    "Limite inferiore IC 95%", language
+                                ),
+                            },
+                            {
+                                "field": "ci_upper",
+                                "type": "quantitative",
+                                "format": "+.2f",
+                                "title": translate_text(
+                                    "Limite superiore IC 95%", language
+                                ),
+                            },
+                            {
+                                "field": "pgm_seed_rate",
+                                "type": "quantitative",
+                                "format": ".1f",
+                                "title": translate_text(
+                                    "Seed PGM superiore (%)", language
+                                ),
+                            },
+                            {
+                                "field": "competitor_seed_rate",
+                                "type": "quantitative",
+                                "format": ".1f",
+                                "title": translate_text(
+                                    "Seed confronto superiore (%)", language
+                                ),
+                            },
+                            {
+                                "field": "outcome",
+                                "type": "nominal",
+                                "title": translate_text(
+                                    "Esito statistico", language
+                                ),
+                            },
+                        ],
+                    },
+                },
+                {
+                    "mark": {
+                        "type": "rule",
+                        "color": "#263247",
+                        "strokeWidth": 2,
+                    },
+                    "encoding": {
+                        "x": {
+                            "field": "ci_lower",
+                            "type": "quantitative",
+                        },
+                        "x2": {"field": "ci_upper"},
+                    },
+                },
+                {
+                    "mark": {
+                        "type": "point",
+                        "filled": True,
+                        "size": 55,
+                        "color": "#263247",
+                    },
+                    "encoding": {
+                        "x": {
+                            "field": "delta",
+                            "type": "quantitative",
+                        }
+                    },
+                },
+            ],
+            "resolve": {"scale": {"color": "shared"}},
+            "height": max(320, 30 * len(successful)),
         },
         width="stretch",
+    )
+    st.caption(
+        "Le barre mostrano la differenza media in punti percentuali; il segmento "
+        "nero è l'intervallo di confidenza appaiato al 95%. Il giallo indica un "
+        "esito statisticamente non conclusivo; direzione e ampiezza della "
+        "differenza restano visibili e non vengono chiamate pareggio."
     )
     with st.expander("Risultati completi per dataset", expanded=False):
         st.dataframe(
@@ -1735,6 +2027,7 @@ if comparison_enabled:
 
     binary_specs = [dataset for dataset in DATASETS if dataset.classes == 2]
     full_comparison_key = (
+        APP_VERSION,
         classifier_key,
         copies,
         feature_mode,
@@ -1816,6 +2109,12 @@ if comparison_enabled:
                     base_seed=int(random_seed),
                 )
                 full_seed_summary = full_case["paired_seed_summary"]
+                (
+                    full_pgm_win_rate,
+                    full_competitor_win_rate,
+                    full_tie_rate,
+                    full_exact_tie,
+                ) = seed_outcome_rates(full_seed_summary)
                 full_rows.append(
                     {
                         "dataset": binary_spec.display_name,
@@ -1834,6 +2133,10 @@ if comparison_enabled:
                         "confidence_upper": full_seed_summary["confidence_upper"],
                         "winner": full_seed_summary["winner"],
                         "seed_count": full_seed_summary["count"],
+                        "pgm_win_rate": full_pgm_win_rate,
+                        "competitor_win_rate": full_competitor_win_rate,
+                        "tie_rate": full_tie_rate,
+                        "exact_tie": full_exact_tie,
                         "encoding": full_case["encoding"],
                         "rescaling_factor": full_case[
                             "rescaling_factor"
