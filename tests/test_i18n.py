@@ -137,7 +137,7 @@ class InternationalizationTests(unittest.TestCase):
 
     def test_app_has_two_flags_and_no_internal_neumark_note(self) -> None:
         source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "5.2.0"', source)
+        self.assertIn('APP_VERSION = "5.3.0"', source)
         self.assertIn('"🇮🇹"', source)
         self.assertIn('"🇬🇧"', source)
         self.assertIn('LANGUAGE_SESSION_KEY = "pgm_interface_language"', source)
@@ -166,6 +166,45 @@ class InternationalizationTests(unittest.TestCase):
                 "en",
             ),
             "Tree ensemble with balanced weights and robust aggregation.",
+        )
+
+    def test_quantitative_full_comparison_labels_are_translated(self) -> None:
+        self.assertEqual(
+            translate_text("Non conclusivo", "en"), "Inconclusive"
+        )
+        self.assertEqual(
+            translate_text("Pareggio esatto", "en"), "Exact tie"
+        )
+        self.assertEqual(
+            translate_text("Vittoria Random Forest confermata", "en"),
+            "Confirmed Random Forest win",
+        )
+        self.assertEqual(
+            translate_text("Esito statistico", "en"),
+            "Statistical outcome",
+        )
+
+    def test_private_upload_and_guide_are_fully_translated(self) -> None:
+        self.assertEqual(
+            translate_text("Carica un dataset personale", "en"),
+            "Upload your own dataset",
+        )
+        upload_description = (
+            "Trascina qui un file tabellare. L'app riconosce CSV, TSV/TXT ed Excel "
+            "XLSX, propone automaticamente il target e usa soltanto le feature "
+            "numeriche selezionate. Il file resta nella memoria della tua sessione: "
+            "non viene salvato nel repository né condiviso con altri utenti."
+        )
+        translated_upload = translate_text(upload_description, "en")
+        self.assertIn("Drag a tabular file here", translated_upload)
+        self.assertNotIn("Trascina qui", translated_upload)
+        self.assertEqual(
+            translate_text("Guida illustrata all'uso", "en"),
+            "Illustrated user guide",
+        )
+        self.assertEqual(
+            translate_text("📘 Scarica la guida PDF completa", "en"),
+            "📘 Download the complete PDF guide",
         )
 
     def test_automatic_encoding_labels_are_translated(self) -> None:

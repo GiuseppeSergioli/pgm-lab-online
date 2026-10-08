@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 5.2.2**
+**Versione 5.3.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -16,6 +16,26 @@ L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
 training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
 circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Novità della versione 5.3.0
+
+- nel catalogo è ora presente un upload drag-and-drop per dataset personali in
+  formato CSV, TSV/TXT o XLSX; target e feature numeriche possono essere
+  verificati prima che il dataset venga aggiunto al selettore principale;
+- l'ingestione applica limiti di dimensione, controlli sulla struttura, sulle
+  classi e sugli identificativi, rimuove le righe senza target e conserva i valori
+  mancanti delle feature per l'imputazione train-only di ogni seed;
+- i dataset caricati sono utilizzabili nella valutazione PGM, nel confronto con un
+  classificatore standard e, se binari, nel full comparison;
+- i dati personali e i modelli derivati restano nella sessione e non entrano nella
+  cache condivisa usata per i dataset pubblici; la rimozione cancella anche i
+  risultati dipendenti dal file;
+- la quota test mostra soltanto valori compatibili con la rappresentazione di tutte
+  le classi nei due lati dello split stratificato;
+- in fondo alla pagina è disponibile una guida PDF illustrata di 10 pagine. La
+  lingua del file segue automaticamente la bandiera italiana o inglese;
+- manifest, test di versione e generatore riproducibile impediscono di pubblicare
+  silenziosamente una guida non allineata a una futura versione dell'app.
 
 ## Novità della versione 5.2.2
 
@@ -69,7 +89,7 @@ delle feature introdotte nella 5.2.0.
 
 Le sezioni successive costituiscono il changelog storico; quando descrivono una
 modalità automatica quantum-ready precedente, tale comportamento è sostituito
-dalle regole della versione 5.2.2.
+dalle regole della versione 5.3.0.
 
 ## Correzione della versione 5.1.1
 
@@ -281,6 +301,40 @@ Haberman, Balance Scale, Ecoli e Glass richiedono una connessione al primo
 caricamento da OpenML e usano poi la cache di scikit-learn. Iris e Wine sono
 caricati dalle copie pubbliche UCI incluse direttamente in scikit-learn.
 
+## Dataset personali
+
+La sezione **Carica un dataset personale** accetta un file alla volta e lo rende
+disponibile nello stesso catalogo dei dataset pubblici. Sono supportati CSV,
+TSV/TXT e XLSX; per Excel viene letta la prima scheda. I limiti applicativi sono
+25 MB, 50.000 righe, 500 colonne, 2-50 classi, almeno 3 campioni per classe e
+almeno 10 campioni validi complessivi.
+
+L'utente conferma la colonna target e le feature numeriche. Le colonne testuali,
+vuote o costanti sono escluse; gli identificativi numerici probabili sono
+deselezionati ma restano disponibili. Le righe senza target vengono rimosse. I
+valori mancanti delle feature restano invece nel dataset e vengono imputati con
+statistiche apprese esclusivamente sul training set di ciascuno split.
+
+Il file, il parsing, i risultati PGM, i benchmark e il circuito derivato non
+vengono inseriti nelle cache condivise di Streamlit. Restano nella sessione
+corrente; il pulsante di rimozione elimina il dataset e i risultati collegati. Un
+dataset personale binario partecipa anche al full comparison, se il preflight di
+memoria e dimensione lo considera sicuro.
+
+## Guide PDF bilingui
+
+I file distribuiti in `assets/guides/` sono selezionati automaticamente dalla
+lingua dell'interfaccia. Per rigenerarli dopo una modifica sostanziale:
+
+```bash
+python scripts/generate_user_guides.py assets/guides
+```
+
+Il generatore aggiorna nello stesso passaggio i due PDF e
+`guide_manifest.json`. `APP_VERSION`, la versione nel generatore e quella nel
+manifest devono coincidere; `tests/test_user_guides.py` interrompe la verifica se
+una futura release dimentica questo aggiornamento.
+
 ## Scelte numeriche esplicite
 
 Il paper dei classificatori PGM assume che i dati siano già codificati come
@@ -387,9 +441,11 @@ server Streamlit: l'app mostra l'errore e conserva training e risultati.
 
 La matrice di un'unitaria generica occupa memoria esponenziale. Per questo la
 materializzazione esatta è limitata a 9 qubit totali. Oltre tale soglia l'app mostra
-lo schema dimensionato e la memoria richiesta, ma non alloca la matrice. La modalità
-quantum-ready evita automaticamente questo caso con una riduzione train-only; la
-modalità con tutte le feature resta disponibile per confronti controllati.
+lo schema dimensionato e la memoria richiesta, ma non alloca la matrice. Se il
+circuito supera il proprio preflight mentre il backend classico k-PGM/r-PGM resta
+sicuro, la classificazione rimane disponibile con tutte le feature; per ottenere
+anche il circuito esatto, l'utente può ridurre le copie oppure richiedere
+esplicitamente una PCA manuale.
 
 Il circuito logico mostrato implementa la **misura PGM** e assume che lo stato test
 sia già preparato nel registro `sys`. Prima di un'esecuzione su simulatore remoto o
@@ -534,12 +590,12 @@ segnaposto.
 
 Il c-PGM esplicito cresce molto rapidamente. Prima di abilitarne la
 materializzazione, l'app stima le principali allocazioni NumPy e controlla sia il
-budget RAM scelto sia la dimensione della diagonalizzazione densa. Se le forme
-primali non sono sicure, la modalità con tutte le feature conserva la
-classificazione attraverso il k-PGM equivalente senza allocarle. La modalità
-quantum-ready, attiva di default, sceglie invece il massimo numero di componenti
-PCA che rende eseguibili tutte le fasi, circuito incluso; il budget RAM non viene
-usato per promettere risorse che il server non possiede.
+budget RAM scelto sia la dimensione della diagonalizzazione densa. L'app sceglie
+tra k-PGM e r-PGM senza eliminare feature automaticamente. Se anche il backend
+meno oneroso supera il limite, il run viene bloccato prima dell'allocazione e
+l'utente può ridurre `c`, usare una macchina realmente più capiente oppure
+richiedere manualmente una PCA. Il budget RAM non viene usato per promettere
+risorse che il server non possiede.
 
 ## Test
 

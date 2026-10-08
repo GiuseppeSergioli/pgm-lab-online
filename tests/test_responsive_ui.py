@@ -41,6 +41,8 @@ class ResponsiveUiConfigurationTests(unittest.TestCase):
         self.assertIn("@media (max-width: 640px)", source)
         self.assertIn('data-testid="stHorizontalBlock"', source)
         self.assertIn("color-scheme: only light", source)
+        self.assertIn("calc(4.5rem + env(safe-area-inset-top))", source)
+        self.assertIn(".st-key-language_switcher", source)
 
 
 if __name__ == "__main__":

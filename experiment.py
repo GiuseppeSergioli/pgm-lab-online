@@ -7,6 +7,7 @@ from math import comb, log
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import balanced_accuracy_score
@@ -75,7 +76,7 @@ def _fit_base_preprocessor(
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     """Fit every data-dependent transformation only on ``X_fit``."""
 
-    imputer = SimpleImputer(strategy="median")
+    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
     X_fit_imputed = imputer.fit_transform(X_fit)
     X_transform_imputed = imputer.transform(X_transform)
     raw_feature_count = int(X_fit_imputed.shape[1])
@@ -455,12 +456,35 @@ def run_experiment(
     explicit_dimension_limit: int = 512,
     automatic_encoding_selection: bool = True,
     rescaling_factors: Sequence[float] = DEFAULT_RESCALING_FACTORS,
+    dataset_override: tuple[pd.DataFrame, pd.Series, str] | None = None,
 ) -> dict:
     """Load data, select an encoding on training only, and run all three PGMs."""
 
     if not 0.0 < test_fraction < 1.0:
         raise ValueError("test_fraction deve essere strettamente tra 0 e 1.")
-    X_frame, y_series, source_used = load_public_dataset(dataset_key)
+    if dataset_override is None:
+        X_frame, y_series, source_used = load_public_dataset(dataset_key)
+    else:
+        if len(dataset_override) != 3:
+            raise ValueError("Il dataset esterno deve contenere X, y e sorgente.")
+        X_candidate, y_candidate, source_candidate = dataset_override
+        X_frame = pd.DataFrame(X_candidate).copy().reset_index(drop=True)
+        y_series = pd.Series(y_candidate, name="target").copy().reset_index(drop=True)
+        if X_frame.empty or X_frame.shape[1] < 1:
+            raise ValueError("Il dataset esterno non contiene feature.")
+        if len(X_frame) != len(y_series):
+            raise ValueError("Feature e target esterni hanno numerosità diverse.")
+        if y_series.isna().any() or y_series.nunique() < 2:
+            raise ValueError("Il target esterno deve contenere almeno due classi valide.")
+        if X_frame.columns.duplicated().any():
+            raise ValueError("Il dataset esterno contiene nomi di feature duplicati.")
+        X_frame = X_frame.apply(pd.to_numeric, errors="coerce")
+        if X_frame.notna().sum().eq(0).any():
+            raise ValueError(
+                "Una feature del dataset esterno non contiene valori numerici."
+            )
+        y_series = y_series.astype(str)
+        source_used = str(source_candidate)[:300]
     X_train_raw, X_test_raw, y_train, y_test = train_test_split(
         X_frame,
         y_series.to_numpy(),

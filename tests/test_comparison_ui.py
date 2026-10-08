@@ -32,7 +32,7 @@ class ComparisonUiTests(unittest.TestCase):
         self.assertIn("if full_comparison_clicked:", source)
         self.assertLess(
             source.index("if compare_current_clicked:"),
-            source.index("selected_classifier_comparison"),
+            source.index('st.session_state["selected_classifier_comparison"]'),
         )
         self.assertLess(
             source.index("if full_comparison_clicked:"),
@@ -48,6 +48,17 @@ class ComparisonUiTests(unittest.TestCase):
         self.assertIn('"Numero di seed di valutazione"', source)
         self.assertIn('key="evaluation_seed_count"', source)
         self.assertIn("execute_multiseed_pgm", source)
+
+    def test_full_comparison_distinguishes_inconclusive_from_exact_tie(self) -> None:
+        source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+
+        self.assertIn('"Non conclusivo"', source)
+        self.assertIn('"Pareggio esatto"', source)
+        self.assertIn('"pgm_win_rate"', source)
+        self.assertIn('"competitor_win_rate"', source)
+        self.assertIn('"tie_rate"', source)
+        self.assertIn('"ci_lower"', source)
+        self.assertIn('"ci_upper"', source)
 
 
 if __name__ == "__main__":

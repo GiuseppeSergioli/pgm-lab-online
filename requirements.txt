@@ -7,6 +7,7 @@ scikit-learn==1.5.2
 joblib==1.5.2
 pyarrow==17.0.0
 streamlit==1.64.0
+openpyxl==3.1.5
 qiskit==1.4.5
 
 # Simulatore locale ad alte prestazioni usato dalla voce "Qiskit Aer".

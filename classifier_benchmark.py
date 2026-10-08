@@ -226,7 +226,10 @@ def get_classifier_spec(key: str) -> ClassifierSpec:
 def _scaled_pipeline(model: BaseEstimator) -> Pipeline:
     return Pipeline(
         [
-            ("imputer", SimpleImputer(strategy="median")),
+            (
+                "imputer",
+                SimpleImputer(strategy="median", keep_empty_features=True),
+            ),
             ("scaler", StandardScaler()),
             ("model", model),
         ]
@@ -236,7 +239,10 @@ def _scaled_pipeline(model: BaseEstimator) -> Pipeline:
 def _tree_pipeline(model: BaseEstimator) -> Pipeline:
     return Pipeline(
         [
-            ("imputer", SimpleImputer(strategy="median")),
+            (
+                "imputer",
+                SimpleImputer(strategy="median", keep_empty_features=True),
+            ),
             ("model", model),
         ]
     )
@@ -288,7 +294,12 @@ def build_classifier(
         return (
             Pipeline(
                 [
-                    ("imputer", SimpleImputer(strategy="median")),
+                    (
+                        "imputer",
+                        SimpleImputer(
+                            strategy="median", keep_empty_features=True
+                        ),
+                    ),
                     (
                         "scaler",
                         MinMaxScaler(feature_range=(0.0, 1.0), clip=True),

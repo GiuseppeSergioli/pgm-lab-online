@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 from sklearn.metrics import accuracy_score
 
 from data_catalog import load_public_dataset
@@ -17,6 +18,33 @@ from experiment import (
 
 
 class EndToEndExperimentTests(unittest.TestCase):
+    def test_private_dataset_override_never_calls_public_loader(self) -> None:
+        X = pd.DataFrame(
+            {
+                "x1": np.linspace(0.0, 1.0, 20),
+                "x2": np.tile([0.0, 1.0], 10),
+            }
+        )
+        y = pd.Series(["A"] * 10 + ["B"] * 10)
+        with patch(
+            "experiment.load_public_dataset",
+            side_effect=AssertionError("Il loader pubblico non deve essere usato"),
+        ):
+            payload = run_experiment(
+                "uploaded_test",
+                copies=1,
+                test_fraction=0.20,
+                random_seed=42,
+                automatic_encoding_selection=False,
+                scalable_full_features=True,
+                dataset_override=(X, y, "sessione privata test"),
+            )
+
+        self.assertEqual(payload["n_total"], 20)
+        self.assertEqual(payload["raw_d"], 2)
+        self.assertEqual(payload["source_used"], "sessione privata test")
+        self.assertEqual(len(payload["y_test"]), 4)
+
     def test_default_iris_run_has_identical_predictions_and_accuracy(self) -> None:
         payload = run_experiment(
             "iris",

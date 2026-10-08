@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 from math import ceil
 import os
+from pathlib import Path
 
 # Limit native linear-algebra pools before importing NumPy, SciPy or scikit-learn.
 # This is intentionally in code as well as in deployment secrets, so a fresh
@@ -40,7 +42,7 @@ from complexity import (
     representation_dimensions,
     scientific_integer,
 )
-from data_catalog import DATASETS, catalog_frame, get_dataset_spec
+from data_catalog import DATASETS, DatasetSpec, catalog_frame
 from evaluation import (
     classification_details_frame,
     confusion_frames,
@@ -79,6 +81,18 @@ from robust_evaluation import (
     paired_seed_summary,
     select_payload_backend,
     summarize_metrics,
+)
+from uploaded_dataset import (
+    UploadedDatasetError,
+    display_name_from_file,
+    inspect_feature_columns,
+    prepare_uploaded_dataset,
+    read_uploaded_table,
+    sanitize_display_name,
+    spreadsheet_safe_csv_bytes,
+    suggest_target_column,
+    uploaded_dataset_key,
+    valid_stratified_test_fractions,
 )
 from quantum_pgm import (
     best_certified_transpilation,
@@ -139,6 +153,16 @@ _st.markdown(
       .stApp [data-baseweb="input"] > div,
       .stApp input, .stApp textarea {
         background-color: #ffffff; color: #202531;
+      }
+      .stApp [data-testid="stFileUploaderDropzone"] {
+        background: #f7f9ff;
+        border: 2px dashed #7d8fc9;
+        border-radius: 0.9rem;
+        padding: 1rem;
+      }
+      .stApp [data-testid="stFileUploaderDropzone"]:hover {
+        background: #eef2ff;
+        border-color: #5268ad;
       }
       .stApp [data-baseweb="select"] *,
       .stApp [data-baseweb="input"] *,
@@ -238,6 +262,19 @@ _st.markdown(
 
 
 LANGUAGE_SESSION_KEY = "pgm_interface_language"
+PRIVATE_DATASET_SESSION_KEY = "pgm_private_uploaded_dataset"
+PRIVATE_UPLOAD_PARSE_CACHE_KEY = "pgm_private_upload_parse_cache"
+PRIVATE_UPLOAD_WIDGET_NONCE_KEY = "pgm_private_upload_widget_nonce"
+PRIVATE_DATASET_RESULT_KEYS = (
+    "last_pgm_run",
+    "selected_classifier_comparison",
+    "full_binary_comparison",
+    "native_synthesis_report",
+    "certified_optimization",
+    "local_quantum_result",
+    "aer_quantum_result",
+    "hardware_preflight",
+)
 if LANGUAGE_SESSION_KEY not in _st.session_state:
     _st.session_state[LANGUAGE_SESSION_KEY] = DEFAULT_LANGUAGE
 
@@ -260,17 +297,18 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "5.2.2"
-EXPERIMENT_CACHE_SCHEMA = "5.2.1-backend-compatibility"
+APP_VERSION = "5.3.0"
+EXPERIMENT_CACHE_SCHEMA = "5.3.0-private-dataset-upload"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
 AUTOMATIC_OPTIMIZATION_LEVELS = (1, 2, 3)
 SCALABLE_EXPLICIT_DIMENSION_LIMIT = 2_000
+GUIDE_DIRECTORY = Path(__file__).resolve().parent / "assets" / "guides"
+GUIDE_MANIFEST_PATH = GUIDE_DIRECTORY / "guide_manifest.json"
 
 
-@st.cache_data(show_spinner=False, max_entries=24)
-def execute_experiment(
+def _run_experiment_for_app(
     dataset_key: str,
     copies: int,
     test_fraction: float,
@@ -280,6 +318,7 @@ def execute_experiment(
     tensor_max_encoded_features: int | None,
     stereographic_max_encoded_features: int | None,
     scalable_full_features: bool,
+    dataset_override: tuple[pd.DataFrame, pd.Series, str] | None,
     cache_schema: str,
 ) -> dict:
     if cache_schema != EXPERIMENT_CACHE_SCHEMA:
@@ -295,13 +334,76 @@ def execute_experiment(
         stereographic_max_encoded_features=stereographic_max_encoded_features,
         scalable_full_features=scalable_full_features,
         explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
+        dataset_override=dataset_override,
     )
     payload["computational_backend"] = select_payload_backend(payload)
     return payload
 
 
-@st.cache_data(show_spinner=False, max_entries=64)
-def execute_standard_classifier(
+@st.cache_data(show_spinner=False, max_entries=24)
+def _execute_public_experiment(
+    dataset_key: str,
+    copies: int,
+    test_fraction: float,
+    random_seed: int,
+    prior_mode: str,
+    relative_tolerance: float,
+    tensor_max_encoded_features: int | None,
+    stereographic_max_encoded_features: int | None,
+    scalable_full_features: bool,
+    cache_schema: str,
+) -> dict:
+    return _run_experiment_for_app(
+        dataset_key,
+        copies,
+        test_fraction,
+        random_seed,
+        prior_mode,
+        relative_tolerance,
+        tensor_max_encoded_features,
+        stereographic_max_encoded_features,
+        scalable_full_features,
+        None,
+        cache_schema,
+    )
+
+
+def execute_experiment(
+    dataset_key: str,
+    copies: int,
+    test_fraction: float,
+    random_seed: int,
+    prior_mode: str,
+    relative_tolerance: float,
+    tensor_max_encoded_features: int | None,
+    stereographic_max_encoded_features: int | None,
+    scalable_full_features: bool,
+    dataset_override: tuple[pd.DataFrame, pd.Series, str] | None,
+    cache_schema: str,
+) -> dict:
+    """Cache public datasets, while keeping private uploads session-local."""
+
+    arguments = (
+        dataset_key,
+        copies,
+        test_fraction,
+        random_seed,
+        prior_mode,
+        relative_tolerance,
+        tensor_max_encoded_features,
+        stereographic_max_encoded_features,
+        scalable_full_features,
+    )
+    if dataset_override is None:
+        return _execute_public_experiment(*arguments, cache_schema)
+    return _run_experiment_for_app(
+        *arguments,
+        dataset_override,
+        cache_schema,
+    )
+
+
+def _fit_standard_classifier_for_app(
     X_train_raw,
     y_train: np.ndarray,
     X_test_raw,
@@ -319,6 +421,96 @@ def execute_standard_classifier(
         random_seed=random_seed,
         requested_tuning_folds=requested_tuning_folds,
     )
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def _execute_public_standard_classifier(
+    X_train_raw,
+    y_train: np.ndarray,
+    X_test_raw,
+    y_test: np.ndarray,
+    classifier_key: str,
+    random_seed: int,
+    requested_tuning_folds: int,
+) -> dict:
+    return _fit_standard_classifier_for_app(
+        X_train_raw,
+        y_train,
+        X_test_raw,
+        y_test,
+        classifier_key,
+        random_seed,
+        requested_tuning_folds,
+    )
+
+
+def execute_standard_classifier(
+    X_train_raw,
+    y_train: np.ndarray,
+    X_test_raw,
+    y_test: np.ndarray,
+    classifier_key: str,
+    random_seed: int,
+    requested_tuning_folds: int,
+    *,
+    use_shared_cache: bool,
+) -> dict:
+    """Fit privately uploaded data without placing it in Streamlit's global cache."""
+
+    runner = (
+        _execute_public_standard_classifier
+        if use_shared_cache
+        else _fit_standard_classifier_for_app
+    )
+    return runner(
+        X_train_raw,
+        y_train,
+        X_test_raw,
+        y_test,
+        classifier_key,
+        random_seed,
+        requested_tuning_folds,
+    )
+
+
+def parse_uploaded_table_for_session(
+    content: bytes,
+    file_name: str,
+) -> tuple[pd.DataFrame, dict]:
+    """Parse once inside the current session; never place private data in a global cache."""
+
+    content_digest = hashlib.sha256(content).hexdigest()
+    cached = _st.session_state.get(PRIVATE_UPLOAD_PARSE_CACHE_KEY)
+    if (
+        cached is not None
+        and cached.get("digest") == content_digest
+        and cached.get("file_name") == file_name
+    ):
+        return cached["frame"], cached["metadata"]
+    frame, metadata = read_uploaded_table(content, file_name)
+    _st.session_state[PRIVATE_UPLOAD_PARSE_CACHE_KEY] = {
+        "digest": content_digest,
+        "file_name": file_name,
+        "frame": frame,
+        "metadata": metadata,
+    }
+    return frame, metadata
+
+
+def clear_dataset_dependent_session_results() -> None:
+    """Discard calculations tied to a dataset that is being replaced or removed."""
+
+    for result_key in PRIVATE_DATASET_RESULT_KEYS:
+        _st.session_state.pop(result_key, None)
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def read_public_guide_asset(path_text: str, app_version: str) -> bytes:
+    """Read a version-keyed, public guide file shipped with the application."""
+
+    if app_version != APP_VERSION:
+        raise ValueError("Versione della guida non coerente con l'app.")
+    return Path(path_text).read_bytes()
 
 
 def requested_feature_count(
@@ -493,8 +685,7 @@ def pgm_seed_record(payload: dict, seed: int) -> dict:
     }
 
 
-@st.cache_data(show_spinner=False, max_entries=12)
-def execute_multiseed_pgm(
+def _evaluate_multiseed_pgm(
     dataset_key: str,
     copies: int,
     test_fraction: float,
@@ -503,6 +694,7 @@ def execute_multiseed_pgm(
     prior_mode: str,
     relative_tolerance: float,
     feature_count: int,
+    dataset_override: tuple[pd.DataFrame, pd.Series, str] | None,
     cache_schema: str,
 ) -> dict:
     """Evaluate the same full/manual feature policy over several outer splits."""
@@ -525,6 +717,7 @@ def execute_multiseed_pgm(
             stereographic_max_encoded_features=feature_count,
             scalable_full_features=True,
             explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
+            dataset_override=dataset_override,
         )
         payload["computational_backend"] = select_payload_backend(payload)
         if reference_payload is None:
@@ -544,8 +737,66 @@ def execute_multiseed_pgm(
     }
 
 
-@st.cache_resource(show_spinner=False, max_entries=6)
-def construct_dilation_cached(
+@st.cache_data(show_spinner=False, max_entries=12)
+def _execute_public_multiseed_pgm(
+    dataset_key: str,
+    copies: int,
+    test_fraction: float,
+    base_seed: int,
+    seed_count: int,
+    prior_mode: str,
+    relative_tolerance: float,
+    feature_count: int,
+    cache_schema: str,
+) -> dict:
+    return _evaluate_multiseed_pgm(
+        dataset_key,
+        copies,
+        test_fraction,
+        base_seed,
+        seed_count,
+        prior_mode,
+        relative_tolerance,
+        feature_count,
+        None,
+        cache_schema,
+    )
+
+
+def execute_multiseed_pgm(
+    dataset_key: str,
+    copies: int,
+    test_fraction: float,
+    base_seed: int,
+    seed_count: int,
+    prior_mode: str,
+    relative_tolerance: float,
+    feature_count: int,
+    dataset_override: tuple[pd.DataFrame, pd.Series, str] | None,
+    cache_schema: str,
+) -> dict:
+    """Use shared caching only for catalog datasets, never for private uploads."""
+
+    arguments = (
+        dataset_key,
+        copies,
+        test_fraction,
+        base_seed,
+        seed_count,
+        prior_mode,
+        relative_tolerance,
+        feature_count,
+    )
+    if dataset_override is None:
+        return _execute_public_multiseed_pgm(*arguments, cache_schema)
+    return _evaluate_multiseed_pgm(
+        *arguments,
+        dataset_override,
+        cache_schema,
+    )
+
+
+def _construct_dilation(
     X_train: np.ndarray,
     y_train: np.ndarray,
     copies: int,
@@ -565,6 +816,52 @@ def construct_dilation_cached(
         exact_qubit_limit=exact_qubit_limit,
     )
     return measurement, dilation
+
+
+@st.cache_resource(show_spinner=False, max_entries=6)
+def _construct_public_dilation_cached(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    copies: int,
+    prior_mode: str,
+    relative_tolerance: float,
+    exact_qubit_limit: int,
+):
+    return _construct_dilation(
+        X_train,
+        y_train,
+        copies,
+        prior_mode,
+        relative_tolerance,
+        exact_qubit_limit,
+    )
+
+
+def construct_dilation_cached(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    copies: int,
+    prior_mode: str,
+    relative_tolerance: float,
+    exact_qubit_limit: int,
+    *,
+    use_shared_cache: bool,
+):
+    """Build private circuits outside Streamlit's process-wide resource cache."""
+
+    runner = (
+        _construct_public_dilation_cached
+        if use_shared_cache
+        else _construct_dilation
+    )
+    return runner(
+        X_train,
+        y_train,
+        copies,
+        prior_mode,
+        relative_tolerance,
+        exact_qubit_limit,
+    )
 
 
 def transpile_in_isolated_process(
@@ -1593,8 +1890,228 @@ with st.expander("Che cosa significa 'equivalenti'?", expanded=False):
     )
 
 st.subheader("1. Scegli il dataset")
+private_dataset = _st.session_state.get(PRIVATE_DATASET_SESSION_KEY)
+with st.expander(
+    "Carica un dataset personale",
+    expanded=private_dataset is None,
+):
+    st.write(
+        "Trascina qui un file tabellare. L'app riconosce CSV, TSV/TXT ed Excel "
+        "XLSX, propone automaticamente il target e usa soltanto le feature "
+        "numeriche selezionate. Il file resta nella memoria della tua sessione: "
+        "non viene salvato nel repository né condiviso con altri utenti."
+    )
+    uploaded_file = st.file_uploader(
+        "Trascina il file oppure clicca per sceglierlo",
+        type=["csv", "tsv", "txt", "xlsx"],
+        accept_multiple_files=False,
+        key=(
+            "private_dataset_uploader_"
+            f"{int(_st.session_state.get(PRIVATE_UPLOAD_WIDGET_NONCE_KEY, 0))}"
+        ),
+        help=(
+            "Massimo 25 MB, 50.000 righe e 500 colonne. La prima riga deve "
+            "contenere i nomi delle colonne; per Excel viene letta la prima scheda."
+        ),
+    )
+    if uploaded_file is not None:
+        try:
+            uploaded_content = uploaded_file.getvalue()
+            uploaded_frame, upload_parsing = parse_uploaded_table_for_session(
+                uploaded_content,
+                uploaded_file.name,
+            )
+            upload_digest = str(upload_parsing["digest"])
+            upload_columns = [str(column) for column in uploaded_frame.columns]
+            suggested_target = suggest_target_column(uploaded_frame)
+            uploaded_target = st.selectbox(
+                "Colonna target da predire",
+                options=upload_columns,
+                index=upload_columns.index(suggested_target),
+                key=f"uploaded_target_{upload_digest[:12]}",
+                help=(
+                    "Il target contiene le etichette delle classi. Puoi correggere "
+                    "la scelta proposta prima di aggiungere il dataset."
+                ),
+            )
+            feature_report = inspect_feature_columns(
+                uploaded_frame,
+                uploaded_target,
+            )
+            numeric_features = list(feature_report["numeric"])
+            recommended_features = list(feature_report["recommended"])
+            if not recommended_features:
+                recommended_features = numeric_features
+            selected_uploaded_features = st.multiselect(
+                "Feature numeriche da utilizzare",
+                options=numeric_features,
+                default=recommended_features,
+                key=(
+                    f"uploaded_features_{upload_digest[:12]}_"
+                    f"{uploaded_target}"
+                ),
+                help=(
+                    "Le colonne testuali, vuote o costanti non sono utilizzabili. "
+                    "Gli identificativi univoci sono disponibili ma deselezionati "
+                    "per impostazione predefinita."
+                ),
+            )
+            uploaded_display_name = st.text_input(
+                "Nome da mostrare nell'app",
+                value=display_name_from_file(uploaded_file.name),
+                max_chars=80,
+                key=f"uploaded_name_{upload_digest[:12]}",
+            )
+
+            if feature_report["non_numeric"]:
+                st.info(
+                    "Colonne non numeriche escluse: "
+                    + ", ".join(feature_report["non_numeric"][:12])
+                    + ("…" if len(feature_report["non_numeric"]) > 12 else "")
+                    + "."
+                )
+            if feature_report["probable_identifiers"]:
+                st.warning(
+                    "Possibili identificativi deselezionati automaticamente: "
+                    + ", ".join(feature_report["probable_identifiers"])
+                    + ". In genere non contengono informazione generalizzabile."
+                )
+            if feature_report["empty_or_constant"]:
+                st.info(
+                    "Colonne vuote o costanti ignorate: "
+                    + ", ".join(feature_report["empty_or_constant"][:12])
+                    + "."
+                )
+
+            uploaded_X, uploaded_y, upload_validation = prepare_uploaded_dataset(
+                uploaded_frame,
+                target_column=uploaded_target,
+                feature_columns=selected_uploaded_features,
+            )
+            if upload_validation["dropped_constant_features"]:
+                st.warning(
+                    "Feature diventate vuote o costanti dopo la rimozione delle "
+                    "righe senza target: "
+                    + ", ".join(upload_validation["dropped_constant_features"])
+                    + "."
+                )
+            upload_metrics = st.columns(4)
+            upload_metrics[0].metric(
+                "Campioni validi", f"{upload_validation['samples']:,}"
+            )
+            upload_metrics[1].metric(
+                "Feature utilizzabili", f"{upload_validation['features']:,}"
+            )
+            upload_metrics[2].metric(
+                "Classi", f"{upload_validation['classes']:,}"
+            )
+            upload_metrics[3].metric(
+                "Valori feature mancanti",
+                f"{upload_validation['missing_feature_values']:,}",
+            )
+            st.caption(
+                "I valori mancanti delle feature saranno imputati usando soltanto "
+                "il training set di ciascun seed. Le righe senza target vengono "
+                "rimosse prima dello split."
+            )
+            with st.expander("Anteprima e distribuzione delle classi", expanded=False):
+                st.dataframe(uploaded_frame.head(8), hide_index=True, width="stretch")
+                st.write({"Campioni per classe": upload_validation["class_counts"]})
+
+            if st.button(
+                "Aggiungi al catalogo e seleziona",
+                key=f"confirm_upload_{upload_digest[:12]}",
+                type="primary",
+            ):
+                clean_display_name = sanitize_display_name(uploaded_display_name)
+                custom_key = uploaded_dataset_key(
+                    upload_digest,
+                    uploaded_target,
+                    selected_uploaded_features,
+                )
+                custom_source = (
+                    f"Upload privato in memoria: {upload_parsing['file_name']} · "
+                    f"SHA-256 {upload_digest[:12]} · target {uploaded_target}"
+                )
+                custom_spec = DatasetSpec(
+                    key=custom_key,
+                    display_name=clean_display_name,
+                    openml_id=None,
+                    samples=int(upload_validation["samples"]),
+                    features=int(upload_validation["features"]),
+                    classes=int(upload_validation["classes"]),
+                    domain="Upload privato",
+                    source_url="",
+                    local_source=custom_source,
+                )
+                clear_dataset_dependent_session_results()
+                _st.session_state[PRIVATE_DATASET_SESSION_KEY] = {
+                    "key": custom_key,
+                    "spec": custom_spec,
+                    "X": uploaded_X,
+                    "y": uploaded_y,
+                    "source": custom_source,
+                    "file_name": upload_parsing["file_name"],
+                    "digest": upload_digest,
+                    "target": uploaded_target,
+                    "metadata": upload_validation,
+                }
+                _st.session_state["dataset_choice"] = custom_key
+                _st.rerun()
+        except UploadedDatasetError as error:
+            st.error(str(error))
+        except Exception as error:
+            st.error(
+                "Il file non può essere aggiunto in modo sicuro. Dettaglio: "
+                + safe_error_message(error)
+            )
+
+    private_dataset = _st.session_state.get(PRIVATE_DATASET_SESSION_KEY)
+    if private_dataset is not None:
+        private_spec = private_dataset["spec"]
+        st.success(
+            f"Dataset personale disponibile: {private_spec.display_name} · "
+            f"{private_spec.samples:,} campioni · {private_spec.features:,} feature · "
+            f"{private_spec.classes:,} classi."
+        )
+        if st.button(
+            "Rimuovi il dataset personale dalla sessione",
+            key="remove_private_dataset",
+        ):
+            removed_key = private_dataset["key"]
+            del _st.session_state[PRIVATE_DATASET_SESSION_KEY]
+            _st.session_state.pop(PRIVATE_UPLOAD_PARSE_CACHE_KEY, None)
+            clear_dataset_dependent_session_results()
+            _st.session_state[PRIVATE_UPLOAD_WIDGET_NONCE_KEY] = (
+                int(_st.session_state.get(PRIVATE_UPLOAD_WIDGET_NONCE_KEY, 0)) + 1
+            )
+            if _st.session_state.get("dataset_choice") == removed_key:
+                _st.session_state["dataset_choice"] = "iris"
+            _st.rerun()
+
+catalog_to_display = catalog_frame()
+if private_dataset is not None:
+    private_spec = private_dataset["spec"]
+    catalog_to_display = pd.concat(
+        [
+            catalog_to_display,
+            pd.DataFrame(
+                [
+                    {
+                        "Dataset": f"📤 {private_spec.display_name}",
+                        "Campioni": private_spec.samples,
+                        "Feature/campione": private_spec.features,
+                        "Classi": private_spec.classes,
+                        "Ambito": "Sessione privata",
+                        "Repository": "",
+                    }
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
 st.dataframe(
-    catalog_frame(),
+    catalog_to_display,
     hide_index=True,
     width="stretch",
     column_config={
@@ -1604,18 +2121,23 @@ st.dataframe(
     },
 )
 
+available_specs = {dataset.key: dataset for dataset in DATASETS}
+if private_dataset is not None:
+    available_specs[private_dataset["key"]] = private_dataset["spec"]
+
 left, middle, right = st.columns([1.5, 1, 1])
 with left:
     selected_key = st.selectbox(
         "Dataset",
-        options=[dataset.key for dataset in DATASETS],
+        options=list(available_specs),
         index=2,
         key="dataset_choice",
         format_func=lambda key: (
-            f"{get_dataset_spec(key).display_name} - "
-            f"{get_dataset_spec(key).samples} campioni, "
-            f"{get_dataset_spec(key).features} feature, "
-            f"{get_dataset_spec(key).classes} classi"
+            ("📤 " if private_dataset is not None and key == private_dataset["key"] else "")
+            + f"{available_specs[key].display_name} - "
+            f"{available_specs[key].samples} campioni, "
+            f"{available_specs[key].features} feature, "
+            f"{available_specs[key].classes} classi"
         ),
     )
 with middle:
@@ -1640,7 +2162,16 @@ with right:
         ),
     )
 
-spec = get_dataset_spec(selected_key)
+spec = available_specs[selected_key]
+selected_dataset_override = (
+    (
+        private_dataset["X"],
+        private_dataset["y"],
+        private_dataset["source"],
+    )
+    if private_dataset is not None and selected_key == private_dataset["key"]
+    else None
+)
 manual_feature_reduction = st.toggle(
     "Richiedi manualmente una riduzione PCA",
     value=False,
@@ -1666,15 +2197,29 @@ else:
     feature_mode = "Tutte le feature originali"
 
 with st.expander("Impostazioni avanzate", expanded=False):
+    test_fraction_options = valid_stratified_test_fractions(
+        spec.samples,
+        spec.classes,
+        (0.15, 0.20, 0.25, 0.30, 0.35, 0.40),
+    )
+    if not test_fraction_options:
+        test_fraction_options = (0.40,)
+    default_test_fraction = (
+        0.20 if 0.20 in test_fraction_options else test_fraction_options[0]
+    )
     advanced_1, advanced_2, advanced_3, advanced_4 = st.columns(4)
     with advanced_1:
-        test_fraction = st.slider(
+        test_fraction = st.select_slider(
             "Quota test set",
-            min_value=0.15,
-            max_value=0.40,
-            value=0.20,
-            step=0.05,
-            key="test_fraction_choice",
+            options=test_fraction_options,
+            value=default_test_fraction,
+            key=f"test_fraction_choice_{selected_key}",
+            format_func=lambda value: f"{value:.0%}",
+            help=(
+                "Sono proposte soltanto quote che consentono allo split "
+                "stratificato di rappresentare ogni classe sia nel training sia "
+                "nel test set."
+            ),
         )
     with advanced_2:
         random_seed = st.number_input(
@@ -1882,6 +2427,7 @@ if run_clicked:
                 PRIOR_LABELS[prior_label],
                 10.0 ** (-int(tolerance_exponent)),
                 selected_feature_count,
+                selected_dataset_override,
                 EXPERIMENT_CACHE_SCHEMA,
             )
             payload = multiseed_evaluation["reference_payload"]
@@ -1939,6 +2485,7 @@ if comparison_enabled:
         "Confronta sul dataset selezionato",
         key="run_selected_dataset_comparison",
         type="primary",
+        disabled=not classical_run_allowed,
         width="stretch",
     )
     full_comparison_clicked = comparison_actions[1].button(
@@ -1966,6 +2513,7 @@ if comparison_enabled:
                     PRIOR_LABELS[prior_label],
                     10.0 ** (-int(tolerance_exponent)),
                     selected_feature_count,
+                    selected_dataset_override,
                     EXPERIMENT_CACHE_SCHEMA,
                 )
                 standard_results: list[dict] = []
@@ -1993,6 +2541,7 @@ if comparison_enabled:
                             classifier_key,
                             int(seed),
                             3,
+                            use_shared_cache=(selected_dataset_override is None),
                         )
                     )
                 selected_comparison = aggregate_seed_comparison(
@@ -2026,8 +2575,11 @@ if comparison_enabled:
         )
 
     binary_specs = [dataset for dataset in DATASETS if dataset.classes == 2]
+    if private_dataset is not None and private_dataset["spec"].classes == 2:
+        binary_specs.append(private_dataset["spec"])
     full_comparison_key = (
         APP_VERSION,
+        tuple(dataset.key for dataset in binary_specs),
         classifier_key,
         copies,
         feature_mode,
@@ -2057,6 +2609,16 @@ if comparison_enabled:
                 ),
             )
             try:
+                binary_dataset_override = (
+                    (
+                        private_dataset["X"],
+                        private_dataset["y"],
+                        private_dataset["source"],
+                    )
+                    if private_dataset is not None
+                    and binary_spec.key == private_dataset["key"]
+                    else None
+                )
                 full_feature_count = requested_feature_count(
                     raw_feature_count=binary_spec.features,
                     manual_reduction=manual_feature_reduction,
@@ -2064,6 +2626,35 @@ if comparison_enabled:
                         int(manual_feature_count), binary_spec.features
                     ),
                 )
+                full_test_estimate = ceil(
+                    binary_spec.samples * float(test_fraction)
+                )
+                full_train_estimate = binary_spec.samples - full_test_estimate
+                _, full_symmetric_dimension = representation_dimensions(
+                    full_feature_count + 1,
+                    copies,
+                )
+                full_backend_dimension = (
+                    full_symmetric_dimension
+                    if full_symmetric_dimension < full_train_estimate
+                    and full_symmetric_dimension
+                    <= SCALABLE_EXPLICIT_DIMENSION_LIMIT
+                    else full_train_estimate
+                )
+                full_peak_bytes = 8 * (
+                    6 * full_backend_dimension**2
+                    + (full_train_estimate + full_test_estimate)
+                    * full_backend_dimension
+                    + full_train_estimate * (full_feature_count + 1)
+                )
+                if (
+                    full_backend_dimension > SCALABLE_EXPLICIT_DIMENSION_LIMIT
+                    or full_peak_bytes > int(memory_budget_gib * 1024**3)
+                ):
+                    raise ValueError(
+                        "Confronto non avviato: la rappresentazione esatta supera "
+                        "il budget computazionale selezionato."
+                    )
                 full_pgm_evaluation = execute_multiseed_pgm(
                     binary_spec.key,
                     copies,
@@ -2073,6 +2664,7 @@ if comparison_enabled:
                     PRIOR_LABELS[prior_label],
                     10.0 ** (-int(tolerance_exponent)),
                     full_feature_count,
+                    binary_dataset_override,
                     EXPERIMENT_CACHE_SCHEMA,
                 )
                 full_standard_results: list[dict] = []
@@ -2100,6 +2692,7 @@ if comparison_enabled:
                             classifier_key,
                             int(seed),
                             2,
+                            use_shared_cache=(binary_dataset_override is None),
                         )
                     )
                 full_case = aggregate_seed_comparison(
@@ -2602,6 +3195,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                     PRIOR_LABELS[prior_label],
                     10.0 ** (-int(tolerance_exponent)),
                     EXACT_CIRCUIT_QUBIT_LIMIT,
+                    use_shared_cache=(selected_dataset_override is None),
                 )
                 circuit = build_qiskit_circuit(dilation)
                 circuit_drawing = translate_text(
@@ -3134,9 +3728,11 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
 
                 st.download_button(
                     "Scarica classificazioni dettagliate (CSV)",
-                    data=localize_dataframe(
-                        classification_details, current_language()
-                    ).to_csv(index=False).encode("utf-8"),
+                    data=spreadsheet_safe_csv_bytes(
+                        localize_dataframe(
+                            classification_details, current_language()
+                        )
+                    ),
                     file_name=localized_filename(
                         f"classificazioni_dettagliate_{selected_key}_c{copies}.csv",
                         f"detailed_classifications_{selected_key}_c{copies}.csv",
@@ -4517,9 +5113,9 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
     predictions = prediction_frame(results, y_test)
     st.download_button(
         "Scarica le predizioni (CSV)",
-        data=localize_dataframe(predictions, current_language())
-        .to_csv(index=False)
-        .encode("utf-8"),
+        data=spreadsheet_safe_csv_bytes(
+            localize_dataframe(predictions, current_language())
+        ),
         file_name=localized_filename(
             f"predizioni_{selected_key}_c{copies}_seed{int(random_seed)}.csv",
             f"predictions_{selected_key}_c{copies}_seed{int(random_seed)}.csv",
@@ -4534,3 +5130,37 @@ st.caption(
     "Nota: r-PGM è il nome breve usato qui per il reduced c-PGM (Rc-PGM) del paper. "
     "Per c=1 la mappa ridotta coincide con la mappa originale."
 )
+
+st.divider()
+st.subheader("Guida illustrata all'uso")
+st.caption(
+    "Scarica la guida completa nella lingua attiva: contiene il percorso passo passo, "
+    "illustrazioni dell'interfaccia, interpretazione statistica, circuito quantistico, "
+    "provider, privacy e risoluzione dei problemi."
+)
+try:
+    guide_manifest = json.loads(GUIDE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    guide_version = str(guide_manifest["app_version"])
+    if guide_version != APP_VERSION:
+        raise RuntimeError(
+            "La guida deve essere aggiornata alla versione corrente dell'app."
+        )
+    guide_language = current_language()
+    guide_file_name = str(guide_manifest["files"][guide_language])
+    guide_path = (GUIDE_DIRECTORY / guide_file_name).resolve()
+    if guide_path.parent != GUIDE_DIRECTORY.resolve() or not guide_path.is_file():
+        raise FileNotFoundError("File della guida non disponibile.")
+    guide_columns = st.columns([1, 2, 1])
+    with guide_columns[1]:
+        st.download_button(
+            "📘 Scarica la guida PDF completa",
+            data=read_public_guide_asset(str(guide_path), guide_version),
+            file_name=guide_file_name,
+            mime="application/pdf",
+            width="stretch",
+        )
+except Exception as error:
+    st.warning(
+        "La guida PDF è temporaneamente in aggiornamento. Dettaglio: "
+        + safe_error_message(error)
+    )
