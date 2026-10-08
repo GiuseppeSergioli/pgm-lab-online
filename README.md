@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 5.2.0**
+**Versione 5.2.1**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -16,6 +16,16 @@ L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
 training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
 circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Novità della versione 5.2.1
+
+- correzione compatibile del confronto multi-seed quando un deployment o una
+  cache precedente non contiene ancora il campo `computational_backend`;
+- invalidazione della cache 5.2.0 per impedire il riuso di risultati incompleti;
+- selezione protetta del backend esatto calcolato direttamente (k-PGM o r-PGM).
+
+La versione 5.2.1 mantiene inoltre tutte le novità statistiche e di gestione
+delle feature introdotte nella 5.2.0.
 
 ## Novità della versione 5.2.0
 
@@ -45,7 +55,7 @@ circuito Qiskit e verifica le sue probabilità sul test set.
 
 Le sezioni successive costituiscono il changelog storico; quando descrivono una
 modalità automatica quantum-ready precedente, tale comportamento è sostituito
-dalle regole della versione 5.2.0.
+dalle regole della versione 5.2.1.
 
 ## Correzione della versione 5.1.1
 

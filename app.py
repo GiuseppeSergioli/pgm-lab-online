@@ -77,6 +77,7 @@ from pgm_core import MethodResult, stable_predictions, symmetric_feature_map
 from robust_evaluation import (
     evaluation_seeds,
     paired_seed_summary,
+    select_payload_backend,
     summarize_metrics,
 )
 from quantum_pgm import (
@@ -253,8 +254,8 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "5.2.0"
-EXPERIMENT_CACHE_SCHEMA = "5.2.0-full-features-multiseed"
+APP_VERSION = "5.2.1"
+EXPERIMENT_CACHE_SCHEMA = "5.2.1-backend-compatibility"
 EXACT_CIRCUIT_QUBIT_LIMIT = 9
 ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
 FULL_GATE_DIAGRAM_LIMIT = 5_000
@@ -277,7 +278,7 @@ def execute_experiment(
 ) -> dict:
     if cache_schema != EXPERIMENT_CACHE_SCHEMA:
         raise ValueError("Schema della cache dell'esperimento non riconosciuto.")
-    return run_experiment(
+    payload = run_experiment(
         dataset_key,
         copies=copies,
         test_fraction=test_fraction,
@@ -289,6 +290,8 @@ def execute_experiment(
         scalable_full_features=scalable_full_features,
         explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
     )
+    payload["computational_backend"] = select_payload_backend(payload)
+    return payload
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -331,7 +334,7 @@ def requested_feature_count(
 
 def pgm_benchmark_metrics(payload: dict) -> dict[str, float]:
     classes = np.unique(payload["y_train"])
-    result = payload["results"][payload["computational_backend"]]
+    result = payload["results"][select_payload_backend(payload)]
     return classification_metrics(
         payload["y_test"],
         result.predictions,
@@ -347,7 +350,8 @@ def compact_comparison_result(
     bootstrap_resamples: int,
     random_seed: int,
 ) -> dict:
-    pgm_result = payload["results"][payload["computational_backend"]]
+    computational_backend = select_payload_backend(payload)
+    pgm_result = payload["results"][computational_backend]
     bootstrap = paired_balanced_accuracy_bootstrap(
         payload["y_test"],
         pgm_result.predictions,
@@ -378,7 +382,7 @@ def compact_comparison_result(
         "base_d": payload["base_d"],
         "d": payload["d"],
         "source_used": payload["source_used"],
-        "computational_backend": payload["computational_backend"],
+        "computational_backend": computational_backend,
     }
 
 
@@ -454,7 +458,7 @@ def pgm_seed_record(payload: dict, seed: int) -> dict:
         "rescaling_factor": payload["rescaling_factor"],
         "base_d": int(payload["base_d"]),
         "d": int(payload["d"]),
-        "computational_backend": payload["computational_backend"],
+        "computational_backend": select_payload_backend(payload),
     }
 
 
@@ -491,6 +495,7 @@ def execute_multiseed_pgm(
             scalable_full_features=True,
             explicit_dimension_limit=SCALABLE_EXPLICIT_DIMENSION_LIMIT,
         )
+        payload["computational_backend"] = select_payload_backend(payload)
         if reference_payload is None:
             reference_payload = payload
         payloads.append(payload)
@@ -2081,12 +2086,12 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 "numericamente quasi degenere: consulta la diagnostica."
             )
         st.info(
-            f"Backend adattivo attivo: {payload['computational_backend']}. "
+            f"Backend adattivo attivo: {select_payload_backend(payload)}. "
             + ", ".join(independent_methods)
             + " è stato calcolato direttamente; "
             + ", ".join(kernel_equivalent_methods)
             + " sono stati valutati mediante l'identità esatta delle Gram matrix "
-            f"con {payload['computational_backend']}, senza costruire le rispettive "
+            f"con {select_payload_backend(payload)}, senza costruire le rispettive "
             "matrici. Gli zeri negli "
             "scarti che coinvolgono questi metodi derivano quindi dall'equivalenza "
             "matematica, non da tre diagonalizzazioni duplicate."
@@ -2149,7 +2154,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         exact_qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
     )
     if not actual_circuit_resources.exact_materialization_allowed:
-        classical_predictions = results[payload["computational_backend"]].predictions
+        classical_predictions = results[select_payload_backend(payload)].predictions
         classical_classes = np.unique(payload["y_train"])
         classical_correct = classical_predictions == y_test
         classical_counts, classical_percentages = confusion_frames(
