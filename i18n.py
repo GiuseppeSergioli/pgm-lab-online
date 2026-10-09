@@ -77,6 +77,30 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Non assegnata": "Unassigned",
     "Versione": "Version",
     "Che cosa significa 'equivalenti'?": "What does ‘equivalent’ mean?",
+    "Sezione 1": "Section 1",
+    "Sezione 2": "Section 2",
+    "Sezione 3 · opzionale": "Section 3 · optional",
+    "Sezione 4": "Section 4",
+    "Sezione 5 · laboratorio quantistico": "Section 5 · quantum laboratory",
+    "Documentazione": "Documentation",
+    "Seleziona dati e copie oppure carica un file personale; ogni scelta resta modificabile.": (
+        "Select data and copies or upload your own file; every choice remains editable."
+    ),
+    "Verifica subito fattibilità classica, dimensione del circuito e limiti di sicurezza.": (
+        "Immediately check classical feasibility, circuit size, and safety limits."
+    ),
+    "Avvia soltanto i benchmark che desideri; questa sezione non esegue automaticamente la PGM principale.": (
+        "Run only the benchmarks you want; this section never runs the main PGM automatically."
+    ),
+    "Statistiche multi-seed, equivalenza dei metodi, diagnosi e risultati campione per campione.": (
+        "Multi-seed statistics, method equivalence, diagnostics, and sample-by-sample results."
+    ),
+    "Circuito logico, classificazione, validazione, optimizer, simulatori, QPU ed export in un unico spazio protetto.": (
+        "Logical circuit, classification, validation, optimizer, simulators, QPUs, and export in one protected workspace."
+    ),
+    "Manuale bilingue aggiornato con flusso operativo, interpretazione dei risultati, circuito e provider.": (
+        "Updated bilingual manual covering the workflow, result interpretation, circuit, and providers."
+    ),
     "1. Scegli il dataset": "1. Choose a dataset",
     "Carica un dataset personale": "Upload your own dataset",
     "Trascina il file oppure clicca per sceglierlo": (
@@ -124,6 +148,55 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Prior di classe": "Class prior",
     "Soglia spettrale relativa": "Relative spectral threshold",
     "2. Controlla le dimensioni prima del calcolo": "2. Check dimensions before running",
+    "Mappa delle attività": "Activity map",
+    "### Mappa delle attività": "### Activity map",
+    "① Valutazione PGM": "① PGM evaluation",
+    "② Confronto opzionale": "② Optional comparison",
+    "③ Risultati e test": "③ Results and testing",
+    "④ Laboratorio quantistico": "④ Quantum laboratory",
+    "**① Valutazione PGM**": "**① PGM evaluation**",
+    "**② Confronto opzionale**": "**② Optional comparison**",
+    "**③ Risultati e test**": "**③ Results and testing**",
+    "**④ Laboratorio quantistico**": "**④ Quantum laboratory**",
+    "Multi-seed, media e deviazione standard.": (
+        "Multi-seed evaluation, mean, and standard deviation."
+    ),
+    "Classificatore scelto o full comparison.": (
+        "Selected classifier or full comparison."
+    ),
+    "Metriche, confusion matrix e singoli campioni.": (
+        "Metrics, confusion matrix, and individual samples."
+    ),
+    "Circuito, verifica, optimizer, simulatori/QPU ed export.": (
+        "Circuit, validation, optimizer, simulators/QPUs, and export."
+    ),
+    "Pronta": "Ready",
+    "Bloccata dal budget": "Blocked by the budget",
+    "Avvio indipendente": "Independent launch",
+    "Dopo la valutazione PGM": "After PGM evaluation",
+    "Schema simbolico; circuito esatto oltre il limite": (
+        "Symbolic diagram; exact circuit above the limit"
+    ),
+    "Circuito esatto; sintesi ed esecuzione oltre il limite": (
+        "Exact circuit; synthesis and execution above the limit"
+    ),
+    "Disponibile dopo la valutazione PGM": (
+        "Available after PGM evaluation"
+    ),
+    "Circuito logico": "Logical circuit",
+    "Classificazione test": "Test classification",
+    "Validazione matematica": "Mathematical validation",
+    "Optimizer": "Optimizer",
+    "Esecuzione quantistica": "Quantum execution",
+    "Esporta": "Export",
+    "Visualizza il circuito logico": "View the logical circuit",
+    "Configura simulatore o QPU": "Configure a simulator or QPU",
+    "Le funzioni sono indipendenti e partono soltanto dal relativo comando. Questa mappa anticipa ciò che diventerà disponibile dopo la valutazione.": (
+        "Functions are independent and start only from their own command. This map previews what becomes available after evaluation."
+    ),
+    "Questi comandi si attivano dopo la valutazione PGM quando la dimensione del circuito rispetta i limiti indicati. Il campionamento PGM ideale può restare disponibile anche quando la sintesi gate-by-gate è disabilitata.": (
+        "These commands activate after PGM evaluation when the circuit size meets the stated limits. Ideal PGM sampling may remain available even when gate-by-gate synthesis is disabled."
+    ),
     "N training stimato": "Estimated training N",
     "Feature originali": "Original features",
     "Feature codificate": "Encoded features",
@@ -169,6 +242,21 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "3. Confronto con altri classificatori": (
         "3. Comparison with other classifiers"
     ),
+    "Avvia la valutazione PGM multi-seed": (
+        "Run the multi-seed PGM evaluation"
+    ),
+    "### Avvia la valutazione PGM multi-seed": (
+        "### Run the multi-seed PGM evaluation"
+    ),
+    "Con questa configurazione verranno resi disponibili anche il circuito logico esatto e gli strumenti quantistici compatibili con i limiti indicati sopra.": (
+        "This configuration will also enable the exact logical circuit and the quantum tools compatible with the limits stated above."
+    ),
+    "La valutazione classica resta completa; per questa configurazione il circuito sarà mostrato come schema simbolico dimensionato.": (
+        "Classical evaluation remains complete; for this configuration the circuit will be shown as a dimensioned symbolic diagram."
+    ),
+    "I risultati compariranno qui dopo aver premuto il pulsante di valutazione multi-seed immediatamente sopra.": (
+        "Results will appear here after you press the multi-seed evaluation button immediately above."
+    ),
     "Abilita il confronto opzionale": "Enable optional comparison",
     "Classificatore standard": "Standard classifier",
     "Confronta sul dataset selezionato": (
@@ -193,6 +281,20 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "errore_massimo_norma_feature": "maximum_feature_norm_error",
     "4. Circuito quantistico della PGM": "4. PGM quantum circuit",
     "5. Circuito quantistico della PGM": "5. PGM quantum circuit",
+    "Sintetizza il circuito": "Synthesize the circuit",
+    "Ottimizza e certifica": "Optimize and certify",
+    "Strumenti quantistici non attivi per questa configurazione": (
+        "Quantum tools unavailable for this configuration"
+    ),
+    "#### Strumenti quantistici non attivi per questa configurazione": (
+        "#### Quantum tools unavailable for this configuration"
+    ),
+    "Le funzioni restano visibili, ma richiedono la matrice esatta U_PGM. Il blocco evita che un calcolo denso eccessivo interrompa l'intera applicazione.": (
+        "The functions remain visible, but they require the exact U_PGM matrix. This guard prevents an oversized dense computation from interrupting the entire application."
+    ),
+    "Esegui prima la valutazione PGM nella sezione immediatamente precedente. Il laboratorio si attiverà senza avviare automaticamente sintesi, optimizer, simulatori o QPU.": (
+        "First run the PGM evaluation in the immediately preceding section. The laboratory will activate without automatically starting synthesis, the optimizer, simulators, or QPUs."
+    ),
     "Balanced accuracy": "Balanced accuracy",
     "Precision macro": "Macro precision",
     "Recall macro": "Macro recall",
@@ -371,8 +473,23 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "💻 PGM ideale locale — campionamento diretto": (
         "💻 Local ideal PGM — direct sampling"
     ),
+    "🧩 Qiskit BasicSimulator locale — circuito ideale": (
+        "🧩 Local Qiskit BasicSimulator — ideal circuit"
+    ),
     "🧰 Qiskit Aer locale — circuito ideale o rumoroso": (
         "🧰 Local Qiskit Aer — ideal or noisy circuit"
+    ),
+    "🔷 IBM Fake Backend locale — rumore da snapshot QPU": (
+        "🔷 Local IBM Fake Backend — QPU snapshot noise"
+    ),
+    "🟧 Amazon Braket Local — state vector o density matrix": (
+        "🟧 Amazon Braket Local — state vector or density matrix"
+    ),
+    "🟪 AQT Offline — ideale o rumoroso": (
+        "🟪 AQT Offline — ideal or noisy"
+    ),
+    "☁️ AQT Cloud — simulatori autorizzati": (
+        "☁️ AQT Cloud — authorized simulators"
     ),
     "☁️ IonQ Cloud — ideale o modello di rumore": (
         "☁️ IonQ Cloud — ideal or noise model"
@@ -391,6 +508,14 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Errore gate 2-qubit": "2-qubit gate error",
     "Errore di lettura": "Readout error",
     "Metodo Aer": "Aer method",
+    "Snapshot IBM": "IBM snapshot",
+    "Metodo Braket Local": "Braket Local method",
+    "Metodo AQT Offline": "AQT Offline method",
+    "Rumoroso": "Noisy",
+    "Ottimizza, certifica ed esegui sul simulatore selezionato": (
+        "Optimize, certify, and run on the selected simulator"
+    ),
+    "Predizione simulatore": "Simulator prediction",
     "Ottimizza automaticamente ed esegui con Aer": (
         "Optimize automatically and run with Aer"
     ),
@@ -419,6 +544,11 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Modello di rumore IonQ": "IonQ noise model",
     "Connetti e aggiorna risorse IonQ": "Connect and refresh IonQ resources",
     "Backend IonQ": "IonQ backend",
+    "AQT access token": "AQT access token",
+    "Connetti e aggiorna simulatori AQT": (
+        "Connect and refresh AQT simulators"
+    ),
+    "Simulatore AQT Cloud": "AQT Cloud simulator",
     "IBM Quantum API key (facoltativa se già salvata)": (
         "IBM Quantum API key (optional if already saved)"
     ),
@@ -458,6 +588,10 @@ EXACT_TRANSLATIONS: dict[str, str] = {
     "Confermo di voler inviare un job IonQ che può usare quota o generare costi.": (
         "I confirm that I want to submit an IonQ job that may consume quota or "
         "incur charges."
+    ),
+    "Confermo di voler inviare il job al simulatore AQT Cloud selezionato e di accettarne quota o costi.": (
+        "I confirm that I want to submit the job to the selected AQT Cloud "
+        "simulator and accept the associated quota usage or charges."
     ),
     "Confermo di voler inviare il job alla QPU IonQ selezionata e di accettarne quota o costi.": (
         "I confirm that I want to submit the job to the selected IonQ QPU and "
@@ -912,6 +1046,25 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("predizione ideale=", "ideal prediction="),
     ("Esecuzioni circuitali: ottimizzazione automatica certificata, minimizzando gate entangling, poi profondità e porte totali.", "Circuit executions use certified automatic optimization, minimizing entangling gates first, then depth and total gates."),
     ("Modalità più veloce: campiona direttamente dalla distribuzione teorica della PGM, senza simulare ogni porta del circuito.", "Fastest mode: sample directly from the theoretical PGM distribution without simulating every circuit gate."),
+    ("Simulatore di riferimento incluso in Qiskit. È ideale e più lento di Aer, ma non richiede componenti nativi aggiuntivi.", "Reference simulator included with Qiskit. It is ideal and slower than Aer, but requires no additional native components."),
+    ("Qiskit non è installato.", "Qiskit is not installed."),
+    ("Esecuzione locale con topologia, gate e snapshot di rumore di una QPU IBM. Non richiede token e non invia job.", "Local execution using an IBM QPU topology, gate set, and noise snapshot. It requires no token and submits no job."),
+    ("IBM Fake Backend richiede Qiskit Aer e il provider IBM già elencati in requirements.txt.", "IBM Fake Backend requires Qiskit Aer and the IBM provider already listed in requirements.txt."),
+    ("Lettura degli snapshot IBM non riuscita:", "Reading IBM snapshots failed:"),
+    ("Nessuno snapshot IBM locale compatibile con il numero di qubit del circuito.", "No local IBM snapshot is compatible with the circuit qubit count."),
+    ("Amazon Braket eseguito interamente sul server dell'app: non richiede account AWS, S3 o credenziali.", "Amazon Braket runs entirely on the app server: it requires no AWS account, S3 bucket, or credentials."),
+    ("Amazon Braket Local richiede Python 3.11 o successivo.", "Amazon Braket Local requires Python 3.11 or later."),
+    ("Amazon Braket Local non è installato.", "Amazon Braket Local is not installed."),
+    ("Simulatori AQT inclusi nel provider: uno ideale e uno con rumore. L'esecuzione è locale e non richiede token.", "AQT simulators bundled with the provider: one ideal and one noisy. Execution is local and requires no token."),
+    ("Provider AQT non installato.", "The AQT provider is not installed."),
+    ("Simulazione disabilitata: il circuito supera il limite sicuro di", "Simulation disabled: the circuit exceeds the safe limit of"),
+    ("qubit per questo motore.", "qubits for this engine."),
+    ("Il simulatore selezionato accetta al massimo", "The selected simulator accepts at most"),
+    ("Ottimizzo in un processo isolato, certifico l'equivalenza ed eseguo il circuito...", "Optimizing in an isolated process, certifying equivalence, and running the circuit..."),
+    ("Il circuito supera il limite AQT di 2.000 porte.", "The circuit exceeds AQT's 2,000-gate limit."),
+    ("Simulazione locale non riuscita:", "Local simulation failed:"),
+    ("Nessun circuito candidato ha superato la certificazione: la simulazione non è stata eseguita.", "No candidate circuit passed certification; simulation was not run."),
+    ("ha eseguito il migliore circuito certificato: livello", "ran the best certified circuit: level"),
     ("Qiskit Aer esegue il circuito completo.", "Qiskit Aer runs the full circuit."),
     ("Puoi scegliere il metodo numerico e aggiungere un semplice rumore depolarizzante.", "You can choose the numerical method and add a simple depolarizing noise model."),
     ("Qiskit Aer non è installato.", "Qiskit Aer is not installed."),
@@ -937,6 +1090,13 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Connessione AWS non riuscita:", "AWS connection failed:"),
     ("Connessione verificata · account", "Connection verified · account"),
     ("Nessun dispositivo compatibile trovato per queste credenziali e questa selezione.", "No compatible device was found for these credentials and this selection."),
+    ("###### Connessione ai simulatori AQT Cloud", "###### Connect to AQT Cloud simulators"),
+    ("AQT usa un access token del portale AQT.", "AQT uses an access token from the AQT portal."),
+    ("L'app mostra soltanto i simulatori autorizzati per l'account; i simulatori offline senza token sono disponibili nella voce separata AQT Offline.", "The app lists only simulators authorized for the account; token-free offline simulators are available under the separate AQT Offline option."),
+    ("AQT richiede Python 3.10 o successivo.", "AQT requires Python 3.10 or later."),
+    ("Lettura dei simulatori AQT autorizzati...", "Reading authorized AQT simulators..."),
+    ("Connessione AQT non riuscita:", "AQT connection failed:"),
+    ("Nessun simulatore AQT Cloud è autorizzato per questo account. AQT Offline resta disponibile.", "No AQT Cloud simulator is authorized for this account. AQT Offline remains available."),
     ("###### Connessione a LRZ Quantum tramite MQSS", "###### Connect to LRZ Quantum through MQSS"),
     ("L'app interroga prima le risorse online e ignora in modo sicuro i metadati mancanti dei target offline.", "The app queries online resources first and safely ignores missing target metadata for offline resources."),
     ("In questo modo un backend non disponibile, come MUNIQC-Atoms20, non impedisce di mostrare una risorsa operativa come EQE1.", "This prevents an unavailable backend such as MUNIQC-Atoms20 from hiding an operational resource such as EQE1."),
@@ -987,7 +1147,7 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("errore massimo", "maximum error"),
     ("Il preflight non ha superato la certificazione di equivalenza: l'invio è disabilitato.", "Preflight did not pass equivalence certification; submission is disabled."),
     ("Circuito troppo grande per il disegno integrale; il conteggio delle porte resta esatto.", "The circuit is too large for a full drawing; gate counts remain exact."),
-    ("Il circuito supera 2.000 porte, limite noto per alcune risorse LRZ; altri backend possono avere limiti differenti.", "The circuit exceeds 2,000 gates, a known limit for some LRZ resources; other backends may have different limits."),
+    ("Il circuito supera 2.000 porte, limite noto per alcune risorse AQT/LRZ; altri backend possono avere limiti differenti.", "The circuit exceeds 2,000 gates, a known limit for some AQT/LRZ resources; other backends may have different limits."),
     ("Confermo di voler inviare", "I confirm that I want to submit"),
     ("il job alla risorsa LRZ selezionata", "the job to the selected LRZ resource"),
     ("il job alla QPU IonQ selezionata", "the job to the selected IonQ QPU"),
@@ -1002,6 +1162,7 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Invio del job; il risultato verrà letto solo su richiesta...", "Submitting the job; the result will be retrieved only on request..."),
     ("Reinserire il token LRZ.", "Re-enter the LRZ token."),
     ("Reinserire la API key IonQ.", "Re-enter the IonQ API key."),
+    ("Reinserire il token AQT.", "Re-enter the AQT token."),
     ("Credenziali o regione AWS mancanti.", "AWS credentials or region are missing."),
     ("Job inviato. ID:", "Job submitted. ID:"),
     ("Invio non riuscito:", "Submission failed:"),
@@ -1095,6 +1256,9 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Il risultato non contiene conteggi utilizzabili.", "The result contains no usable counts."),
     ("Tutti gli shot sono finiti in esiti binari non assegnati.", "All shots ended in unassigned binary outcomes."),
     ("Il provider ha restituito un risultato vuoto.", "The provider returned an empty result."),
+    ("Simulatore Amazon Braket locale non riconosciuto.", "Unknown Amazon Braket local simulator."),
+    ("Backend AQT non trovato:", "AQT backend not found:"),
+    ("Snapshot IBM non trovato:", "IBM snapshot not found:"),
     ("Questa versione del provider Braket non accetta una sessione AWS isolata.", "This version of the Braket provider does not accept an isolated AWS session."),
     ("Aggiornare qiskit-braket-provider.", "Update qiskit-braket-provider."),
     ("Nessun profilo o credenziale AWS disponibile.", "No AWS profile or credentials are available."),
@@ -1150,6 +1314,91 @@ PHRASE_TRANSLATIONS: tuple[tuple[str, str], ...] = (
     ("Nessun autovalore supera la soglia spettrale; controllare i dati.", "No eigenvalue exceeds the spectral threshold; check the data."),
     ("explicit_dimension_limit deve essere un intero.", "explicit_dimension_limit must be an integer."),
     ("explicit_dimension_limit deve essere positivo.", "explicit_dimension_limit must be positive."),
+    (
+        "Il circuito logico esatto, la classificazione test e la validazione matematica saranno disponibili.",
+        "The exact logical circuit, test classification, and mathematical validation will be available.",
+    ),
+    (
+        "La decomposizione completa, l'ottimizzazione e l'esecuzione gate-by-gate resteranno disabilitate:",
+        "Full decomposition, optimization, and gate-by-gate execution will remain disabled:",
+    ),
+    ("questa configurazione usa", "this configuration uses"),
+    ("qubit, oltre il limite protetto di", "qubits, above the protected limit of"),
+    (
+        "Per rientrare nel limite con questi valori di copie e classi, puoi richiedere manualmente una PCA con al massimo",
+        "To fit the limit with these copy and class values, you may manually request PCA with at most",
+    ),
+    ("componenti.", "components."),
+    (
+        "Con questo numero di copie e classi non basta una PCA a una sola componente: occorre ridurre le copie oppure scegliere un dataset con meno classi.",
+        "With this number of copies and classes, even one PCA component is insufficient: reduce the number of copies or choose a dataset with fewer classes.",
+    ),
+    (
+        "La classificazione resta disponibile senza ridurre le feature. Se desideri anche il circuito esatto, la riduzione resta sempre una scelta esplicita dell'utente.",
+        "Classification remains available without reducing features. If you also need the exact circuit, reduction always remains an explicit user choice.",
+    ),
+    (
+        "Il comando esegue",
+        "This command runs",
+    ),
+    (
+        "split stratificati e produce i risultati della sezione 4.",
+        "stratified splits and produces the Section 4 results.",
+    ),
+    (
+        "Il circuito usa soltanto lo split di riferimento con seed",
+        "The circuit uses only the reference split with seed",
+    ),
+    ("e non altera le statistiche.", "and does not alter the statistics."),
+    (
+        "Il circuito logico esatto, la classificazione test e la validazione restano disponibili.",
+        "The exact logical circuit, test classification, and validation remain available.",
+    ),
+    (
+        "La sintesi gate-by-gate e l'optimizer sono invece disabilitati oltre",
+        "Gate-by-gate synthesis and the optimizer are disabled above",
+    ),
+    (" qubit:", " qubits:"),
+    (
+        "per questa unitaria generica il limite prudenziale è circa",
+        "for this generic unitary, the conservative upper bound is approximately",
+    ),
+    (
+        "CNOT, oltre alle rotazioni a un qubit.",
+        "CNOT gates, in addition to single-qubit rotations.",
+    ),
+    (
+        "Questa separazione protegge l'interfaccia da tempi e memoria non prevedibili.",
+        "This separation protects the interface from unpredictable runtime and memory use.",
+    ),
+    (
+        "Per attivare questi due comandi puoi richiedere una PCA manuale, ridurre il numero di copie oppure scegliere un dataset con meno classi.",
+        "To enable these two commands, you may request manual PCA, reduce the number of copies, or choose a dataset with fewer classes.",
+    ),
+    (
+        "La PGM e le sue feature non vengono modificate automaticamente.",
+        "The PGM and its features are never modified automatically.",
+    ),
+    (
+        "Per attivare il circuito esatto con le copie e le classi correnti, abilita volontariamente la PCA nella sezione 1 e imposta al massimo",
+        "To enable the exact circuit with the current copies and classes, explicitly enable PCA in Section 1 and set at most",
+    ),
+    (
+        "In alternativa riduci il numero di copie.",
+        "Alternatively, reduce the number of copies.",
+    ),
+    (
+        "Nessuna feature viene ridotta automaticamente.",
+        "No feature is reduced automatically.",
+    ),
+    (
+        "Con il numero corrente di copie e classi, neppure una PCA a una componente rientra nel limite sicuro.",
+        "With the current number of copies and classes, even one PCA component does not fit the safe limit.",
+    ),
+    (
+        "Riduci il numero di copie oppure usa un dataset con meno classi; la classificazione PGM classica resta comunque completa.",
+        "Reduce the number of copies or use a dataset with fewer classes; classical PGM classification remains complete.",
+    ),
 )
 
 

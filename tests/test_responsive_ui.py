@@ -43,6 +43,23 @@ class ResponsiveUiConfigurationTests(unittest.TestCase):
         self.assertIn("color-scheme: only light", source)
         self.assertIn("calc(4.5rem + env(safe-area-inset-top))", source)
         self.assertIn(".st-key-language_switcher", source)
+        self.assertIn(".section-banner", source)
+        self.assertIn(".quantum-tool-strip", source)
+        self.assertIn(".st-key-pgm_run_panel", source)
+
+    def test_header_badge_is_packaged_and_displayed_before_flags(self) -> None:
+        source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+        badge = (
+            PROJECT_ROOT
+            / "assets"
+            / "branding"
+            / "giuseppe_sergioli_quantum_badge.png"
+        )
+
+        self.assertTrue(badge.is_file())
+        self.assertGreater(badge.stat().st_size, 10_000)
+        self.assertIn("BRAND_BADGE_PATH", source)
+        self.assertLess(source.index("_st.image("), source.index('"🇮🇹"'))
 
 
 if __name__ == "__main__":

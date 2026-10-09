@@ -7,15 +7,22 @@ import unittest
 
 import numpy as np
 
+import hardware
 from hardware import (
     build_sample_circuit,
+    discover_aqt_simulators,
+    discover_ibm_fake_backends,
     discover_ionq_devices,
     discover_lrz_backends,
     generic_job_counts,
     hardware_python_status,
     normalized_counts,
     prediction_from_counts,
+    simulate_basic_shots,
+    simulate_braket_local_shots,
+    simulate_ibm_fake_shots,
     simulate_ideal_shots,
+    submit_aqt_job,
     submit_ionq_job,
     verify_aws_identity,
 )
@@ -339,6 +346,359 @@ class HardwareHelpersTests(unittest.TestCase):
 
         self.assertEqual(job_id, "ionq-job")
         self.assertEqual(backend.options["shots"], 1)
+
+    def test_braket_local_simulator_never_uses_aws_credentials(self) -> None:
+        captured = {}
+
+        class Result:
+            def get_counts(self):
+                return {"0": 6, "1": 4}
+
+        class Job:
+            def result(self):
+                return Result()
+
+        class Backend:
+            def __init__(self, *, name):
+                captured["name"] = name
+
+            def run(self, circuit, *, shots):
+                captured["circuit"] = circuit
+                captured["shots"] = shots
+                return Job()
+
+        qiskit_module = types.ModuleType("qiskit")
+        qiskit_module.transpile = lambda circuit, **kwargs: circuit
+        braket_provider = types.ModuleType("qiskit_braket_provider")
+        braket_provider.BraketLocalBackend = Backend
+        previous_qiskit = sys.modules.get("qiskit")
+        previous_braket = sys.modules.get("qiskit_braket_provider")
+        sys.modules["qiskit"] = qiskit_module
+        sys.modules["qiskit_braket_provider"] = braket_provider
+        try:
+            counts = simulate_braket_local_shots(
+                object(),
+                shots=10,
+                seed=12,
+                backend_name="braket_sv",
+            )
+        finally:
+            for name, previous in (
+                ("qiskit", previous_qiskit),
+                ("qiskit_braket_provider", previous_braket),
+            ):
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        self.assertEqual(counts, {"0": 6, "1": 4})
+        self.assertEqual(captured["name"], "braket_sv")
+        self.assertEqual(captured["shots"], 10)
+        self.assertFalse(any(name.startswith("AWS_") for name in captured))
+
+    def test_basic_simulator_preserves_shots_and_seed(self) -> None:
+        captured = {}
+
+        class Result:
+            def get_counts(self):
+                return {"0": 8, "1": 2}
+
+        class Job:
+            def result(self):
+                return Result()
+
+        class BasicSimulator:
+            def run(self, circuit, *, shots, seed_simulator):
+                captured.update(
+                    circuit=circuit,
+                    shots=shots,
+                    seed_simulator=seed_simulator,
+                )
+                return Job()
+
+        qiskit_module = types.ModuleType("qiskit")
+        qiskit_module.transpile = lambda circuit, **kwargs: circuit
+        providers_module = types.ModuleType("qiskit.providers")
+        basic_module = types.ModuleType("qiskit.providers.basic_provider")
+        basic_module.BasicSimulator = BasicSimulator
+        previous = {
+            name: sys.modules.get(name)
+            for name in (
+                "qiskit",
+                "qiskit.providers",
+                "qiskit.providers.basic_provider",
+            )
+        }
+        sys.modules["qiskit"] = qiskit_module
+        sys.modules["qiskit.providers"] = providers_module
+        sys.modules["qiskit.providers.basic_provider"] = basic_module
+        try:
+            counts = simulate_basic_shots(
+                object(), shots=10, seed=41, optimization_level=0
+            )
+        finally:
+            for name, old_module in previous.items():
+                if old_module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = old_module
+
+        self.assertEqual(counts, {"0": 8, "1": 2})
+        self.assertEqual(captured["shots"], 10)
+        self.assertEqual(captured["seed_simulator"], 41)
+
+    def test_ibm_fake_simulator_uses_selected_snapshot_and_seed(self) -> None:
+        captured = {}
+
+        class FakeBackend:
+            name = "fake_test"
+
+        class Result:
+            def get_counts(self):
+                return {"00": 5, "01": 7}
+
+        class RunResult:
+            def result(self):
+                return Result()
+
+        class AerSimulator:
+            @classmethod
+            def from_backend(cls, backend):
+                captured["snapshot"] = backend.name
+                return cls()
+
+            def run(self, circuit, *, shots, seed_simulator):
+                captured.update(
+                    circuit=circuit,
+                    shots=shots,
+                    seed_simulator=seed_simulator,
+                )
+                return RunResult()
+
+        qiskit_module = types.ModuleType("qiskit")
+        qiskit_module.transpile = lambda circuit, **kwargs: circuit
+        aer_module = types.ModuleType("qiskit_aer")
+        aer_module.AerSimulator = AerSimulator
+        previous_qiskit = sys.modules.get("qiskit")
+        previous_aer = sys.modules.get("qiskit_aer")
+        previous_catalog = hardware._ibm_fake_backend_catalog
+        sys.modules["qiskit"] = qiskit_module
+        sys.modules["qiskit_aer"] = aer_module
+        hardware._ibm_fake_backend_catalog = lambda: (FakeBackend(),)
+        try:
+            counts = simulate_ibm_fake_shots(
+                object(),
+                backend_name="fake_test",
+                shots=12,
+                seed=73,
+                optimization_level=1,
+            )
+        finally:
+            hardware._ibm_fake_backend_catalog = previous_catalog
+            for name, old_module in (
+                ("qiskit", previous_qiskit),
+                ("qiskit_aer", previous_aer),
+            ):
+                if old_module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = old_module
+
+        self.assertEqual(counts, {"00": 5, "01": 7})
+        self.assertEqual(captured["snapshot"], "fake_test")
+        self.assertEqual(captured["shots"], 12)
+        self.assertEqual(captured["seed_simulator"], 73)
+
+    def test_aqt_discovery_separates_offline_and_cloud_simulators(self) -> None:
+        class Configuration:
+            simulator = True
+            n_qubits = 20
+            max_shots = 2_000
+
+        class Backend:
+            def __init__(self, name):
+                self.name = name
+                self.resource_id = name
+
+            def configuration(self):
+                return Configuration()
+
+            def status(self):
+                return True
+
+        class Provider:
+            def __init__(self, token=None):
+                self.token = token
+
+            def backends(self):
+                return [
+                    Backend("offline_simulator_no_noise"),
+                    Backend("offline_simulator_noise"),
+                    Backend("simulator_cloud"),
+                ]
+
+        root = types.ModuleType("qiskit_aqt_provider")
+        provider_module = types.ModuleType("qiskit_aqt_provider.aqt_provider")
+        provider_module.AQTProvider = Provider
+        root.aqt_provider = provider_module
+        previous_root = sys.modules.get("qiskit_aqt_provider")
+        previous_provider = sys.modules.get("qiskit_aqt_provider.aqt_provider")
+        sys.modules["qiskit_aqt_provider"] = root
+        sys.modules["qiskit_aqt_provider.aqt_provider"] = provider_module
+        try:
+            offline = discover_aqt_simulators(None, offline=True)
+            cloud = discover_aqt_simulators("token", offline=False)
+        finally:
+            for name, previous in (
+                ("qiskit_aqt_provider", previous_root),
+                ("qiskit_aqt_provider.aqt_provider", previous_provider),
+            ):
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        self.assertEqual(len(offline), 2)
+        self.assertTrue(all(device.provider == "AQT Offline" for device in offline))
+        self.assertEqual([device.name for device in cloud], ["simulator_cloud"])
+
+    def test_aqt_submission_uses_selected_backend_and_shots(self) -> None:
+        captured = {}
+
+        class Job:
+            def job_id(self):
+                return "aqt-job"
+
+        class Backend:
+            def run(self, circuit, *, shots):
+                captured["circuit"] = circuit
+                captured["shots"] = shots
+                return Job()
+
+        backend = Backend()
+
+        class Provider:
+            def __init__(self, token=None):
+                captured["token"] = token
+
+            def get_backend(self, name=None, **kwargs):
+                captured["backend"] = name
+                captured["workspace"] = kwargs.get("workspace")
+                return backend
+
+        root = types.ModuleType("qiskit_aqt_provider")
+        provider_module = types.ModuleType("qiskit_aqt_provider.aqt_provider")
+        provider_module.AQTProvider = Provider
+        root.aqt_provider = provider_module
+        qiskit_module = types.ModuleType("qiskit")
+        qiskit_module.transpile = lambda circuit, **kwargs: circuit
+        previous_root = sys.modules.get("qiskit_aqt_provider")
+        previous_provider = sys.modules.get("qiskit_aqt_provider.aqt_provider")
+        previous_qiskit = sys.modules.get("qiskit")
+        sys.modules["qiskit_aqt_provider"] = root
+        sys.modules["qiskit_aqt_provider.aqt_provider"] = provider_module
+        sys.modules["qiskit"] = qiskit_module
+        try:
+            _, job_id = submit_aqt_job(
+                object(),
+                token="aqt-token",
+                backend_name="simulator_cloud",
+                shots=200,
+                workspace="workspace-a",
+            )
+        finally:
+            for name, previous in (
+                ("qiskit_aqt_provider", previous_root),
+                ("qiskit_aqt_provider.aqt_provider", previous_provider),
+                ("qiskit", previous_qiskit),
+            ):
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        self.assertEqual(job_id, "aqt-job")
+        self.assertEqual(captured["token"], "aqt-token")
+        self.assertEqual(captured["backend"], "simulator_cloud")
+        self.assertEqual(captured["workspace"], "workspace-a")
+        self.assertEqual(captured["shots"], 200)
+
+    def test_aqt_cloud_discovery_uses_resource_type_not_name_heuristics(self) -> None:
+        captured = []
+
+        class Backend:
+            name = "resource-42"
+            resource_id = "resource-42"
+            workspace_id = "research-team"
+            num_qubits = 12
+
+            def status(self):
+                return True
+
+        class Provider:
+            def __init__(self, token=None):
+                self.token = token
+
+            def backends(self, *, backend_type=None):
+                captured.append(backend_type)
+                return [Backend()] if backend_type == "simulator" else []
+
+        root = types.ModuleType("qiskit_aqt_provider")
+        root.AQTProvider = Provider
+        previous_root = sys.modules.get("qiskit_aqt_provider")
+        sys.modules["qiskit_aqt_provider"] = root
+        try:
+            devices = discover_aqt_simulators("token", offline=False)
+        finally:
+            if previous_root is None:
+                sys.modules.pop("qiskit_aqt_provider", None)
+            else:
+                sys.modules["qiskit_aqt_provider"] = previous_root
+
+        self.assertEqual(captured, ["simulator"])
+        self.assertEqual([device.name for device in devices], ["resource-42"])
+        self.assertEqual(devices[0].region, "research-team")
+        self.assertEqual(
+            devices[0].identifier, "research-team:resource-42"
+        )
+
+    def test_ibm_fake_discovery_filters_oversized_snapshots(self) -> None:
+        class Backend:
+            def __init__(self, name, qubits):
+                self.name = name
+                self.num_qubits = qubits
+
+        class Provider:
+            def backends(self):
+                return [Backend("fake_small", 7), Backend("fake_huge", 127)]
+
+        root = types.ModuleType("qiskit_ibm_runtime")
+        fake_module = types.ModuleType("qiskit_ibm_runtime.fake_provider")
+        fake_module.FakeProviderForBackendV2 = Provider
+        root.fake_provider = fake_module
+        previous_root = sys.modules.get("qiskit_ibm_runtime")
+        previous_fake = sys.modules.get("qiskit_ibm_runtime.fake_provider")
+        sys.modules["qiskit_ibm_runtime"] = root
+        sys.modules["qiskit_ibm_runtime.fake_provider"] = fake_module
+        hardware._ibm_fake_backend_catalog.cache_clear()
+        try:
+            devices = discover_ibm_fake_backends(
+                min_num_qubits=5,
+                max_num_qubits=32,
+            )
+        finally:
+            hardware._ibm_fake_backend_catalog.cache_clear()
+            for name, previous in (
+                ("qiskit_ibm_runtime", previous_root),
+                ("qiskit_ibm_runtime.fake_provider", previous_fake),
+            ):
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        self.assertEqual([device.name for device in devices], ["fake_small"])
 
     @unittest.skipUnless(
         importlib.util.find_spec("qiskit") is not None,

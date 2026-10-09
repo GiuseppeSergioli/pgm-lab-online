@@ -6,3 +6,4 @@
 -r requirements-aws.txt
 -r requirements-ionq.txt
 -r requirements-ibm.txt
+-r requirements-aqt.txt

@@ -62,12 +62,17 @@ install_ionq() {
   run_pip_requirements requirements-ionq.txt
 }
 
+install_aqt() {
+  run_pip_requirements requirements-aqt.txt
+}
+
 install_all() {
   install_aws || return 1
   install_lrz || return 1
   install_aer || return 1
   install_ibm || return 1
   install_ionq || return 1
+  install_aqt || return 1
   "$conda_executable" run --no-capture-output -n pgm-lab python -m pip check
 }
 
@@ -78,9 +83,10 @@ echo "2) Amazon AWS Braket"
 echo "3) Qiskit Aer (simulatori locali)"
 echo "4) IBM Quantum"
 echo "5) IonQ Quantum Cloud"
-echo "6) Tutti i provider"
+echo "6) AQT (offline e cloud)"
+echo "7) Tutti i provider"
 echo
-read -r -p "Scegli da 1 a 6: " choice
+read -r -p "Scegli da 1 a 7: " choice
 
 case "$choice" in
   1) install_lrz ;;
@@ -88,7 +94,8 @@ case "$choice" in
   3) install_aer ;;
   4) install_ibm ;;
   5) install_ionq ;;
-  6) install_all ;;
+  6) install_aqt ;;
+  7) install_all ;;
   *)
     echo "Scelta non valida."
     read -r -p "Premi Invio per chiudere..."

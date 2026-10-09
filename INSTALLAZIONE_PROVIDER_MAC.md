@@ -13,7 +13,8 @@ Fai doppio clic su `Installa_Provider_Quantistici.command` e scegli:
 3. Qiskit Aer, per la simulazione locale del circuito;
 4. IBM Quantum;
 5. IonQ Quantum Cloud;
-6. tutti i provider.
+6. AQT, inclusi simulatori offline e cloud;
+7. tutti i provider.
 
 Lo script usa l'ambiente Conda `pgm-lab`. Per Amazon AWS installa `numba` e
 `llvmlite` come pacchetti binari Conda prima dei componenti Braket, evitando la
@@ -35,6 +36,7 @@ Sono supportate queste chiavi:
 ```toml
 LRZ_MQSS_TOKEN = "..."
 IONQ_API_KEY = "..."
+AQT_TOKEN = "..."
 QISKIT_IBM_TOKEN = "..."
 QISKIT_IBM_INSTANCE = "..."
 ```
@@ -52,6 +54,7 @@ cd /percorso/del/package
 python -m pip install --prefer-binary -r requirements-simulators.txt
 python -m pip install --prefer-binary -r requirements-lrz.txt
 python -m pip install --prefer-binary -r requirements-ionq.txt
+python -m pip install --prefer-binary -r requirements-aqt.txt
 python -m pip install --prefer-binary -r requirements-ibm.txt
 ```
 

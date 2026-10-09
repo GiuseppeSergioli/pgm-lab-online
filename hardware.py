@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import lru_cache
 from io import BytesIO
 import inspect
 import os
@@ -191,6 +192,82 @@ def simulate_aer_shots(
     ).result()
     counts = result.get_counts()
     return {str(key): int(value) for key, value in counts.items()}
+
+
+def simulate_basic_shots(
+    circuit: Any,
+    *,
+    shots: int,
+    seed: int,
+    optimization_level: int = 1,
+) -> dict[str, int]:
+    """Execute a circuit with Qiskit's dependency-free reference simulator.
+
+    ``BasicSimulator`` is intentionally kept as a conservative fallback.  It is
+    slower than Aer, but it ships with Qiskit itself and therefore remains useful
+    when an optional native simulator wheel cannot be loaded on a platform.
+    """
+
+    if shots < 1:
+        raise ValueError("Il numero di shot deve essere positivo.")
+
+    from qiskit import transpile
+    from qiskit.providers.basic_provider import BasicSimulator
+
+    backend = BasicSimulator()
+    executable = transpile(
+        circuit,
+        backend=backend,
+        optimization_level=int(optimization_level),
+        seed_transpiler=int(seed),
+    )
+    job = backend.run(
+        executable,
+        shots=int(shots),
+        seed_simulator=int(seed),
+    )
+    return generic_job_counts(job, shots=shots)
+
+
+def simulate_braket_local_shots(
+    circuit: Any,
+    *,
+    shots: int,
+    seed: int,
+    backend_name: str,
+    optimization_level: int = 1,
+) -> dict[str, int]:
+    """Execute a Qiskit circuit on a local Amazon Braket simulator.
+
+    Supported names are ``braket_sv`` (state vector) and ``braket_dm`` (density
+    matrix).  No AWS account, network request, S3 bucket, or credential is used.
+    The seed is applied to transpilation; Braket's local sampling API does not
+    currently expose a portable sampling-seed option through its Qiskit adapter.
+    """
+
+    if shots < 1:
+        raise ValueError("Il numero di shot deve essere positivo.")
+    if backend_name not in {"braket_sv", "braket_dm"}:
+        raise ValueError("Simulatore Amazon Braket locale non riconosciuto.")
+
+    from qiskit import transpile
+    try:
+        # Public import used by current qiskit-braket-provider releases.
+        from qiskit_braket_provider import BraketLocalBackend
+    except ImportError:  # pragma: no cover - compatibility with older layouts
+        # Keep the pinned 0.4.x provider usable if the class is exposed only
+        # from its historical submodule.
+        from qiskit_braket_provider.providers import BraketLocalBackend
+
+    backend = BraketLocalBackend(name=backend_name)
+    executable = transpile(
+        circuit,
+        backend=backend,
+        optimization_level=int(optimization_level),
+        seed_transpiler=int(seed),
+    )
+    job = backend.run(executable, shots=int(shots))
+    return generic_job_counts(job, shots=shots)
 
 
 def normalized_counts(
@@ -822,6 +899,256 @@ def submit_ionq_job(
         run_options["shots"] = 1
     job = backend.run(executable, **run_options)
     return job, _job_identifier(job)
+
+
+def _aqt_provider(token: str | None) -> Any:
+    try:
+        # Public import documented by qiskit-aqt-provider 1.15.
+        from qiskit_aqt_provider import AQTProvider
+    except ImportError:  # pragma: no cover - compatibility with older layouts
+        from qiskit_aqt_provider.aqt_provider import AQTProvider
+
+    return AQTProvider(token) if token else AQTProvider()
+
+
+def _aqt_backend(
+    provider: Any,
+    backend_name: str,
+    *,
+    workspace: str | None = None,
+) -> Any:
+    """Resolve an AQT resource across provider versions and workspaces."""
+
+    errors: list[str] = []
+    attempts: list[dict[str, str]] = []
+    if workspace:
+        attempts.append({"name": backend_name, "workspace": workspace})
+    attempts.append({"name": backend_name})
+    if workspace != "default":
+        attempts.append({"name": backend_name, "workspace": "default"})
+    for arguments in attempts:
+        try:
+            return provider.get_backend(**arguments)
+        except TypeError:
+            try:
+                workspace = arguments.get("workspace")
+                if workspace is None:
+                    return provider.get_backend(backend_name)
+                return provider.get_backend(backend_name, workspace=workspace)
+            except Exception as error:
+                errors.append(str(error))
+        except Exception as error:
+            errors.append(str(error))
+    raise LookupError(
+        "Backend AQT non trovato: " + " | ".join(error for error in errors if error)
+    )
+
+
+def discover_aqt_simulators(
+    token: str | None,
+    *,
+    offline: bool,
+) -> tuple[DeviceDescriptor, ...]:
+    """Return either AQT's local offline simulators or authorized cloud ones."""
+
+    provider = _aqt_provider(token)
+    requested_type = "offline_simulator" if offline else "simulator"
+    filtered_by_type = True
+    try:
+        backends = list(provider.backends(backend_type=requested_type))
+    except TypeError:  # pragma: no cover - compatibility with older providers
+        filtered_by_type = False
+        backends = list(provider.backends())
+    descriptors: list[DeviceDescriptor] = []
+    for backend in backends:
+        name = _backend_name(backend)
+        name_key = name.lower()
+        is_offline = name_key.startswith("offline_") or "offline" in name_key
+        if not filtered_by_type and is_offline != bool(offline):
+            continue
+        if (
+            not filtered_by_type
+            and not _backend_simulator_flag(backend, name)
+            and "sim" not in name_key
+        ):
+            continue
+        status_value, operational, pending_from_status = _backend_status(backend)
+        if operational is False:
+            continue
+        qubits, metadata_warning = _backend_qubits(backend)
+        workspace = _safe_attribute(backend, "workspace_id", None)
+        resource_id = _safe_attribute(backend, "resource_id", None)
+        notes = metadata_warning
+        if workspace:
+            workspace_note = f"Workspace: {workspace}"
+            notes = " · ".join(item for item in (notes, workspace_note) if item)
+        descriptors.append(
+            DeviceDescriptor(
+                provider="AQT Offline" if offline else "AQT Cloud",
+                name=name,
+                identifier=(
+                    f"{workspace}:{resource_id or name}"
+                    if workspace
+                    else str(resource_id or name)
+                ),
+                device_type=(
+                    "SIMULATORE LOCALE AQT"
+                    if offline
+                    else "SIMULATORE CLOUD AQT"
+                ),
+                status="LOCAL" if offline else status_value,
+                region="Locale" if offline else str(workspace or "AQT Cloud"),
+                qubits=qubits,
+                simulator=True,
+                pending_jobs=_backend_pending_jobs(backend, pending_from_status),
+                max_shots=_backend_max_shots(backend) or 2_000,
+                notes=notes,
+            )
+        )
+    return tuple(
+        sorted(
+            descriptors,
+            key=lambda item: (
+                item.qubits if item.qubits is not None else 10**9,
+                item.name.lower(),
+            ),
+        )
+    )
+
+
+def submit_aqt_job(
+    circuit: Any,
+    *,
+    token: str | None,
+    backend_name: str,
+    shots: int,
+    optimization_level: int = 1,
+    workspace: str | None = None,
+) -> tuple[Any, str]:
+    """Submit to an AQT offline or cloud simulator through its Qiskit provider."""
+
+    if shots < 1:
+        raise ValueError("Il numero di shot deve essere positivo.")
+    from qiskit import transpile
+
+    provider = _aqt_provider(token)
+    backend = _aqt_backend(provider, backend_name, workspace=workspace)
+    executable = transpile(
+        circuit,
+        backend=backend,
+        optimization_level=int(optimization_level),
+    )
+    job = backend.run(executable, shots=int(shots))
+    return job, _job_identifier(job)
+
+
+def simulate_aqt_offline_shots(
+    circuit: Any,
+    *,
+    shots: int,
+    backend_name: str,
+    optimization_level: int = 1,
+) -> dict[str, int]:
+    """Run one of AQT's bundled ideal/noisy offline simulators synchronously."""
+
+    job, _ = submit_aqt_job(
+        circuit,
+        token=None,
+        backend_name=backend_name,
+        shots=shots,
+        optimization_level=optimization_level,
+    )
+    return generic_job_counts(job, shots=shots)
+
+
+@lru_cache(maxsize=1)
+def _ibm_fake_backend_catalog() -> tuple[Any, ...]:
+    """Instantiate IBM snapshot backends once per process."""
+
+    from qiskit_ibm_runtime.fake_provider import FakeProviderForBackendV2
+
+    provider = FakeProviderForBackendV2()
+    return tuple(provider.backends())
+
+
+def discover_ibm_fake_backends(
+    *,
+    min_num_qubits: int = 1,
+    max_num_qubits: int = 32,
+) -> tuple[DeviceDescriptor, ...]:
+    """List practical IBM device snapshots for local noisy Aer simulation.
+
+    Very large snapshots are deliberately hidden.  The PGM circuit synthesis is
+    already limited to a small number of qubits, and loading 100+ qubit noise
+    models would add latency without improving the scientific comparison.
+    """
+
+    descriptors: list[DeviceDescriptor] = []
+    seen: set[str] = set()
+    for backend in _ibm_fake_backend_catalog():
+        name = _backend_name(backend)
+        if name in seen:
+            continue
+        qubits, metadata_warning = _backend_qubits(backend)
+        if qubits is None or not int(min_num_qubits) <= qubits <= int(max_num_qubits):
+            continue
+        seen.add(name)
+        descriptors.append(
+            DeviceDescriptor(
+                provider="IBM Fake Backend",
+                name=name,
+                identifier=name,
+                device_type="SIMULATORE LOCALE CON SNAPSHOT IBM",
+                status="LOCAL",
+                region="Locale",
+                qubits=qubits,
+                simulator=True,
+                max_shots=_backend_max_shots(backend),
+                notes=metadata_warning,
+            )
+        )
+    return tuple(sorted(descriptors, key=lambda item: (item.qubits or 10**9, item.name)))
+
+
+def simulate_ibm_fake_shots(
+    circuit: Any,
+    *,
+    backend_name: str,
+    shots: int,
+    seed: int,
+    optimization_level: int = 1,
+) -> dict[str, int]:
+    """Simulate with an IBM topology and calibration snapshot through Aer."""
+
+    if shots < 1:
+        raise ValueError("Il numero di shot deve essere positivo.")
+    from qiskit import transpile
+    from qiskit_aer import AerSimulator
+
+    fake_backend = next(
+        (
+            backend
+            for backend in _ibm_fake_backend_catalog()
+            if _backend_name(backend) == backend_name
+        ),
+        None,
+    )
+    if fake_backend is None:
+        raise LookupError(f"Snapshot IBM non trovato: {backend_name}")
+    simulator = AerSimulator.from_backend(fake_backend)
+    executable = transpile(
+        circuit,
+        backend=simulator,
+        optimization_level=int(optimization_level),
+        seed_transpiler=int(seed),
+    )
+    result = simulator.run(
+        executable,
+        shots=int(shots),
+        seed_simulator=int(seed),
+    ).result()
+    counts = result.get_counts()
+    return {str(key): int(value) for key, value in counts.items()}
 
 
 def _ibm_service(token: str | None, instance: str | None) -> Any:

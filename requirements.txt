@@ -17,6 +17,8 @@ qiskit-aer==0.17.2
 # Provider cloud compatibili con Qiskit 1.4.x. Le versioni sono bloccate per
 # impedire che un rebuild installi automaticamente release basate su Qiskit 2.x.
 qiskit-ionq==0.6.1
+# AQT: simulatori locali ideali/rumorosi e risorse cloud accessibili con token.
+qiskit-aqt-provider==1.15.0; python_version >= "3.9" and python_version < "3.14"
 qiskit-ibm-runtime==0.37.0
 
 # Amazon Braket. joblib resta a 1.5.2 per essere compatibile con la versione di

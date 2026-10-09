@@ -137,7 +137,7 @@ class InternationalizationTests(unittest.TestCase):
 
     def test_app_has_two_flags_and_no_internal_neumark_note(self) -> None:
         source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "5.3.0"', source)
+        self.assertIn('APP_VERSION = "5.5.0"', source)
         self.assertIn('"🇮🇹"', source)
         self.assertIn('"🇬🇧"', source)
         self.assertIn('LANGUAGE_SESSION_KEY = "pgm_interface_language"', source)
@@ -220,6 +220,51 @@ class InternationalizationTests(unittest.TestCase):
         self.assertIn("training data exclusively", translated)
         self.assertIn("120 samples", translated)
         self.assertNotIn("consultato", translated)
+
+    def test_extended_simulator_catalog_is_fully_translated(self) -> None:
+        expected = {
+            "🧩 Qiskit BasicSimulator locale — circuito ideale": (
+                "🧩 Local Qiskit BasicSimulator — ideal circuit"
+            ),
+            "🔷 IBM Fake Backend locale — rumore da snapshot QPU": (
+                "🔷 Local IBM Fake Backend — QPU snapshot noise"
+            ),
+            "🟧 Amazon Braket Local — state vector o density matrix": (
+                "🟧 Amazon Braket Local — state vector or density matrix"
+            ),
+            "🟪 AQT Offline — ideale o rumoroso": (
+                "🟪 AQT Offline — ideal or noisy"
+            ),
+            "☁️ AQT Cloud — simulatori autorizzati": (
+                "☁️ AQT Cloud — authorized simulators"
+            ),
+        }
+        for italian, english in expected.items():
+            self.assertEqual(translate_text(italian, "en"), english)
+
+        message = (
+            "Simulatore di riferimento incluso in Qiskit. È ideale e più lento "
+            "di Aer, ma non richiede componenti nativi aggiuntivi."
+        )
+        translated = translate_text(message, "en")
+        self.assertIn("Reference simulator included with Qiskit", translated)
+        self.assertNotIn("Simulatore di riferimento", translated)
+
+    def test_new_workflow_and_quantum_lab_labels_are_translated(self) -> None:
+        expected = {
+            "Sezione 3 · opzionale": "Section 3 · optional",
+            "Avvia la valutazione PGM multi-seed": (
+                "Run the multi-seed PGM evaluation"
+            ),
+            "Mappa delle attività": "Activity map",
+            "Sezione 5 · laboratorio quantistico": (
+                "Section 5 · quantum laboratory"
+            ),
+            "Validazione matematica": "Mathematical validation",
+            "Configura simulatore o QPU": "Configure a simulator or QPU",
+        }
+        for italian, english in expected.items():
+            self.assertEqual(translate_text(italian, "en"), english)
 
 
 if __name__ == "__main__":

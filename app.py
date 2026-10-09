@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from html import escape
 import importlib.util
 import json
 from math import ceil
@@ -53,15 +54,22 @@ from hardware import (
     aws_available_profiles,
     build_sample_circuit,
     circuit_from_qpy,
+    discover_aqt_simulators,
     discover_aws_devices,
     discover_ibm_devices,
+    discover_ibm_fake_backends,
     discover_ionq_devices,
     discover_lrz_backends,
     generic_job_counts,
     generic_job_status,
     hardware_python_status,
+    simulate_aqt_offline_shots,
     simulate_aer_shots,
+    simulate_basic_shots,
+    simulate_braket_local_shots,
+    simulate_ibm_fake_shots,
     simulate_ideal_shots,
+    submit_aqt_job,
     submit_aws_job,
     submit_ibm_job,
     submit_ionq_job,
@@ -180,6 +188,11 @@ _st.markdown(
         min-width: 0;
       }
       [data-baseweb="tab-list"] {gap: .35rem; flex-wrap: wrap;}
+      [data-testid="stTabs"] {
+        margin-top: .45rem; padding: .65rem .7rem .85rem;
+        background: rgba(255,255,255,.82); border: 1px solid #d9d4ee;
+        border-radius: 14px; box-shadow: 0 6px 18px rgba(33,43,74,.05);
+      }
       [data-baseweb="tab"] {
         background: #edf1fb; border-radius: 10px 10px 0 0; padding: .55rem .9rem;
         color: #263247;
@@ -190,10 +203,58 @@ _st.markdown(
       div.stButton > button, div.stDownloadButton > button {
         border-radius: 10px; max-width: 100%; min-height: 2.75rem;
         white-space: normal; overflow-wrap: anywhere;
+        border: 1px solid #8b82bd; font-weight: 650;
+        box-shadow: 0 4px 12px rgba(66, 53, 120, .10);
+        transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+      }
+      div.stButton > button:not([kind="primary"]),
+      div.stDownloadButton > button {
+        background: linear-gradient(180deg, #ffffff 0%, #f2effc 100%);
+        color: #342a61;
+      }
+      div.stButton > button:hover:not(:disabled),
+      div.stDownloadButton > button:hover:not(:disabled) {
+        transform: translateY(-1px); border-color: #6f42c1;
+        box-shadow: 0 7px 16px rgba(66, 53, 120, .16);
+      }
+      div.stButton > button:disabled,
+      div.stDownloadButton > button:disabled {
+        opacity: .58; box-shadow: none; background: #f2f3f7;
       }
       div.stButton > button[kind="primary"] p {color: #ffffff;}
+      .section-banner {
+        margin: 1.7rem 0 .85rem; padding: 1rem 1.15rem;
+        background: linear-gradient(105deg, #ffffff 0%, #f3f1fc 100%);
+        border: 1px solid #d9d4ee; border-left: 5px solid #6f42c1;
+        border-radius: 14px; box-shadow: 0 7px 22px rgba(33,43,74,.06);
+      }
+      .section-banner .section-kicker {
+        color: #6f42c1; font-size: .76rem; font-weight: 800;
+        letter-spacing: .08em; text-transform: uppercase;
+      }
+      .section-banner h2 {margin: .12rem 0 .25rem; font-size: 1.55rem;}
+      .section-banner p {margin: 0; color: #596579;}
+      .quantum-tool-strip {
+        margin: .65rem 0 1rem; padding: .8rem 1rem;
+        border: 1px solid #cfc7ed; border-radius: 13px;
+        background: linear-gradient(90deg, #f7f5ff 0%, #eef8ff 100%);
+        color: #302657; font-weight: 650;
+      }
+      .st-key-pgm_run_panel {
+        border-color: #9a8bd6 !important;
+        box-shadow: 0 8px 22px rgba(66,53,120,.09);
+      }
+      .st-key-activity_overview {
+        border-color: #cfc7ed !important;
+        background: rgba(255,255,255,.72);
+      }
       .st-key-language_switcher {
         margin-bottom: -.65rem; padding-top: .2rem; overflow: visible;
+      }
+      .st-key-language_switcher [data-testid="stImage"] img {
+        width: 4.1rem; height: 4.1rem; object-fit: cover;
+        border-radius: 50%; border: 2px solid #7968cf;
+        box-shadow: 0 4px 14px rgba(48,38,87,.20);
       }
       .st-key-language_switcher div.stButton > button {
         min-width: 3rem; min-height: 2.45rem; padding: .25rem .65rem;
@@ -297,15 +358,84 @@ PRIOR_LABELS = {
     "Empirici (p_j = n_j/N)": "empirical",
 }
 
-APP_VERSION = "5.3.0"
+APP_VERSION = "5.5.0"
 EXPERIMENT_CACHE_SCHEMA = "5.3.0-private-dataset-upload"
-EXACT_CIRCUIT_QUBIT_LIMIT = 9
-ISOLATED_SYNTHESIS_QUBIT_LIMIT = 7
+EXACT_CIRCUIT_QUBIT_LIMIT = 10
+ISOLATED_SYNTHESIS_QUBIT_LIMIT = 8
 FULL_GATE_DIAGRAM_LIMIT = 5_000
 AUTOMATIC_OPTIMIZATION_LEVELS = (1, 2, 3)
 SCALABLE_EXPLICIT_DIMENSION_LIMIT = 2_000
 GUIDE_DIRECTORY = Path(__file__).resolve().parent / "assets" / "guides"
 GUIDE_MANIFEST_PATH = GUIDE_DIRECTORY / "guide_manifest.json"
+BRAND_BADGE_PATH = (
+    Path(__file__).resolve().parent
+    / "assets"
+    / "branding"
+    / "giuseppe_sergioli_quantum_badge.png"
+)
+
+
+def render_section_banner(
+    section_label: str,
+    title: str,
+    description: str,
+) -> None:
+    """Render a compact visual separator without changing application state."""
+
+    language = current_language()
+    _st.markdown(
+        (
+            '<div class="section-banner">'
+            f'<div class="section-kicker">{escape(translate_text(section_label, language))}</div>'
+            f'<h2>{escape(translate_text(title, language))}</h2>'
+            f'<p>{escape(translate_text(description, language))}</p>'
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def render_quantum_tool_strip() -> None:
+    """Keep the complete quantum workflow visible in both languages."""
+
+    labels = (
+        "Circuito logico",
+        "Classificazione test",
+        "Validazione matematica",
+        "Optimizer",
+        "Esecuzione quantistica",
+        "Esporta",
+    )
+    localized = " · ".join(
+        escape(translate_text(label, current_language())) for label in labels
+    )
+    _st.markdown(
+        f'<div class="quantum-tool-strip">{localized}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def largest_manual_feature_count_for_circuit(
+    *,
+    copies: int,
+    class_count: int,
+    qubit_limit: int,
+    maximum_base_features: int,
+) -> int:
+    """Largest PCA dimension that fits both automatic encoding candidates."""
+
+    for feature_count in range(int(maximum_base_features), 0, -1):
+        # The stereographic candidate adds one coordinate and is therefore the
+        # conservative preview used before train-only encoding selection.
+        candidate = resources_for_dataset(
+            feature_count + 1,
+            copies,
+            class_count,
+            exact_qubit_limit=qubit_limit,
+        )
+        if candidate.total_qubits <= qubit_limit:
+            return feature_count
+    return 0
 
 
 def _run_experiment_for_app(
@@ -1836,6 +1966,11 @@ def render_language_selector() -> None:
         horizontal_alignment="right",
         gap="small",
     ):
+        if BRAND_BADGE_PATH.is_file():
+            _st.image(
+                str(BRAND_BADGE_PATH),
+                width=66,
+            )
         italian_clicked = _st.button(
             "🇮🇹",
             key="language_it",
@@ -1889,7 +2024,11 @@ with st.expander("Che cosa significa 'equivalenti'?", expanded=False):
         """
     )
 
-st.subheader("1. Scegli il dataset")
+render_section_banner(
+    "Sezione 1",
+    "1. Scegli il dataset",
+    "Seleziona dati e copie oppure carica un file personale; ogni scelta resta modificabile.",
+)
 private_dataset = _st.session_state.get(PRIVATE_DATASET_SESSION_KEY)
 with st.expander(
     "Carica un dataset personale",
@@ -2299,7 +2438,11 @@ adaptive_feasible = (
     and adaptive_dimension <= 2_000
 )
 
-st.subheader("2. Controlla le dimensioni prima del calcolo")
+render_section_banner(
+    "Sezione 2",
+    "2. Controlla le dimensioni prima del calcolo",
+    "Verifica subito fattibilità classica, dimensione del circuito e limiti di sicurezza.",
+)
 metric_1, metric_2, metric_3, metric_4, metric_5 = st.columns(5)
 metric_1.metric("N training stimato", f"{n_train_estimate:,}")
 metric_2.metric("Feature originali", f"{spec.features:,}")
@@ -2330,6 +2473,12 @@ preview_circuit_resources = resources_for_dataset(
     spec.classes,
     exact_qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
 )
+suggested_circuit_features = largest_manual_feature_count_for_circuit(
+    copies=copies,
+    class_count=spec.classes,
+    qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
+    maximum_base_features=spec.features,
+)
 if preview_circuit_resources.exact_materialization_allowed:
     st.info(
         "Circuito quantistico previsto: "
@@ -2338,7 +2487,26 @@ if preview_circuit_resources.exact_materialization_allowed:
         f"{preview_circuit_resources.total_qubits} qubit. La dilatazione unitaria "
         "esatta verrà costruita dopo il training."
     )
+    if preview_circuit_resources.total_qubits > ISOLATED_SYNTHESIS_QUBIT_LIMIT:
+        st.warning(
+            "Il circuito logico esatto, la classificazione test e la validazione "
+            "matematica saranno disponibili. La decomposizione completa, "
+            "l'ottimizzazione e l'esecuzione gate-by-gate resteranno disabilitate: "
+            f"questa configurazione usa {preview_circuit_resources.total_qubits} "
+            f"qubit, oltre il limite protetto di {ISOLATED_SYNTHESIS_QUBIT_LIMIT}."
+        )
 else:
+    reduction_hint = (
+        " Per rientrare nel limite con questi valori di copie e classi, puoi "
+        "richiedere manualmente una PCA con al massimo "
+        f"{suggested_circuit_features} componenti."
+        if suggested_circuit_features > 0
+        else (
+            " Con questo numero di copie e classi non basta una PCA a una sola "
+            "componente: occorre ridurre le copie oppure scegliere un dataset con "
+            "meno classi."
+        )
+    )
     st.warning(
         "Circuito quantistico previsto: "
         f"{preview_circuit_resources.total_qubits} qubit e matrice densa "
@@ -2347,8 +2515,63 @@ else:
         f"({human_bytes(preview_circuit_resources.unitary_bytes)}). La matrice esatta "
         f"supera il limite prudenziale di {EXACT_CIRCUIT_QUBIT_LIMIT} qubit. "
         "La classificazione resta disponibile senza ridurre le feature. Se desideri "
-        "anche il circuito esatto, puoi richiedere esplicitamente una PCA manuale "
-        "e scegliere il numero di componenti."
+        "anche il circuito esatto, la riduzione resta sempre una scelta esplicita "
+        "dell'utente."
+        + reduction_hint
+    )
+
+with st.container(border=True, key="activity_overview"):
+    st.markdown("### Mappa delle attività")
+    st.caption(
+        "Le funzioni sono indipendenti e partono soltanto dal relativo comando. "
+        "Questa mappa anticipa ciò che diventerà disponibile dopo la valutazione."
+    )
+    activity_columns = st.columns(4)
+    with activity_columns[0]:
+        st.markdown("**① Valutazione PGM**")
+        st.write("Multi-seed, media e deviazione standard.")
+        st.caption("Pronta" if adaptive_feasible else "Bloccata dal budget")
+    with activity_columns[1]:
+        st.markdown("**② Confronto opzionale**")
+        st.write("Classificatore scelto o full comparison.")
+        st.caption("Avvio indipendente")
+    with activity_columns[2]:
+        st.markdown("**③ Risultati e test**")
+        st.write("Metriche, confusion matrix e singoli campioni.")
+        st.caption("Dopo la valutazione PGM")
+    with activity_columns[3]:
+        st.markdown("**④ Laboratorio quantistico**")
+        st.write("Circuito, verifica, optimizer, simulatori/QPU ed export.")
+        if not preview_circuit_resources.exact_materialization_allowed:
+            st.caption("Schema simbolico; circuito esatto oltre il limite")
+        elif preview_circuit_resources.total_qubits > ISOLATED_SYNTHESIS_QUBIT_LIMIT:
+            st.caption("Circuito esatto; sintesi ed esecuzione oltre il limite")
+        else:
+            st.caption("Disponibile dopo la valutazione PGM")
+    render_quantum_tool_strip()
+    preview_action_columns = st.columns(3)
+    preview_action_columns[0].button(
+        "Visualizza il circuito logico",
+        disabled=True,
+        width="stretch",
+        key="preview_logical_circuit_disabled",
+    )
+    preview_action_columns[1].button(
+        "Ottimizza e certifica equivalenza",
+        disabled=True,
+        width="stretch",
+        key="preview_optimizer_disabled",
+    )
+    preview_action_columns[2].button(
+        "Configura simulatore o QPU",
+        disabled=True,
+        width="stretch",
+        key="preview_execution_disabled",
+    )
+    st.caption(
+        "Questi comandi si attivano dopo la valutazione PGM quando la dimensione "
+        "del circuito rispetta i limiti indicati. Il campionamento PGM ideale può "
+        "restare disponibile anche quando la sintesi gate-by-gate è disabilitata."
     )
 
 preview_complexities = paper_complexities(
@@ -2406,40 +2629,11 @@ run_button_label = (
     if preview_circuit_resources.exact_materialization_allowed
     else "Esegui la valutazione multi-seed (circuito non materializzato)"
 )
-run_clicked = st.button(
-    run_button_label,
-    type="primary",
-    disabled=not classical_run_allowed,
-    width="stretch",
+render_section_banner(
+    "Sezione 3 · opzionale",
+    "3. Confronto con altri classificatori",
+    "Avvia soltanto i benchmark che desideri; questa sezione non esegue automaticamente la PGM principale.",
 )
-
-if run_clicked:
-    try:
-        with st.spinner(
-            f"Valutazione PGM su {int(seed_count)} seed in corso..."
-        ):
-            multiseed_evaluation = execute_multiseed_pgm(
-                selected_key,
-                copies,
-                float(test_fraction),
-                int(random_seed),
-                int(seed_count),
-                PRIOR_LABELS[prior_label],
-                10.0 ** (-int(tolerance_exponent)),
-                selected_feature_count,
-                selected_dataset_override,
-                EXPERIMENT_CACHE_SCHEMA,
-            )
-            payload = multiseed_evaluation["reference_payload"]
-        st.session_state["last_pgm_run"] = {
-            "configuration_key": configuration_key,
-            "payload": payload,
-            "multiseed_evaluation": multiseed_evaluation,
-        }
-    except Exception as error:
-        st.exception(error)
-
-st.subheader("3. Confronto con altri classificatori")
 st.write(
     "Questa sezione è indipendente dal pulsante principale. Se la abiliti, confronta "
     "la PGM con un classificatore standard sugli stessi split stratificati e sugli "
@@ -2775,15 +2969,80 @@ if comparison_enabled:
             "per ricalcolarlo."
         )
 
+with st.container(border=True, key="pgm_run_panel"):
+    st.markdown("### Avvia la valutazione PGM multi-seed")
+    st.write(
+        f"Il comando esegue {int(seed_count)} split stratificati e produce i "
+        "risultati della sezione 4. Il circuito usa soltanto lo split di "
+        f"riferimento con seed {int(random_seed)} e non altera le statistiche."
+    )
+    if preview_circuit_resources.exact_materialization_allowed:
+        st.caption(
+            "Con questa configurazione verranno resi disponibili anche il circuito "
+            "logico esatto e gli strumenti quantistici compatibili con i limiti "
+            "indicati sopra."
+        )
+    else:
+        st.caption(
+            "La valutazione classica resta completa; per questa configurazione il "
+            "circuito sarà mostrato come schema simbolico dimensionato."
+        )
+    run_clicked = st.button(
+        run_button_label,
+        type="primary",
+        disabled=not classical_run_allowed,
+        width="stretch",
+        key="run_multiseed_pgm",
+    )
+
+if run_clicked:
+    try:
+        with st.spinner(
+            f"Valutazione PGM su {int(seed_count)} seed in corso..."
+        ):
+            multiseed_evaluation = execute_multiseed_pgm(
+                selected_key,
+                copies,
+                float(test_fraction),
+                int(random_seed),
+                int(seed_count),
+                PRIOR_LABELS[prior_label],
+                10.0 ** (-int(tolerance_exponent)),
+                selected_feature_count,
+                selected_dataset_override,
+                EXPERIMENT_CACHE_SCHEMA,
+            )
+            payload = multiseed_evaluation["reference_payload"]
+        st.session_state["last_pgm_run"] = {
+            "configuration_key": configuration_key,
+            "payload": payload,
+            "multiseed_evaluation": multiseed_evaluation,
+        }
+    except Exception as error:
+        st.exception(error)
+
+render_section_banner(
+    "Sezione 4",
+    "4. Risultati PGM",
+    "Statistiche multi-seed, equivalenza dei metodi, diagnosi e risultati campione per campione.",
+)
 saved_run = st.session_state.get("last_pgm_run")
-if saved_run and saved_run["configuration_key"] == configuration_key:
+current_run_available = bool(
+    isinstance(saved_run, dict)
+    and saved_run.get("configuration_key") == configuration_key
+)
+if not saved_run:
+    st.info(
+        "I risultati compariranno qui dopo aver premuto il pulsante di valutazione "
+        "multi-seed immediatamente sopra."
+    )
+if current_run_available:
     payload = saved_run["payload"]
     multiseed_evaluation = saved_run["multiseed_evaluation"]
     results: dict[str, MethodResult] = payload["results"]
     y_test = payload["y_test"]
     table = results_frame(results, y_test)
 
-    st.subheader("4. Risultati PGM")
     robust_summary = multiseed_evaluation["summary"]
     robust_columns = st.columns(4)
     for column, metric_key, label, scale, suffix in zip(
@@ -3136,7 +3395,12 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
         "di memoria della costruzione didattica del paper."
     )
 
-    st.subheader("5. Circuito quantistico della PGM")
+    render_section_banner(
+        "Sezione 5 · laboratorio quantistico",
+        "5. Circuito quantistico della PGM",
+        "Circuito logico, classificazione, validazione, optimizer, simulatori, QPU ed export in un unico spazio protetto.",
+    )
+    render_quantum_tool_strip()
     resources = actual_circuit_resources
     circuit_metrics = st.columns(5)
     circuit_metrics[0].metric("Dimensione ridotta", f"{resources.feature_dimension:,}")
@@ -3597,11 +3861,32 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                 )
                 else:
                     st.warning(
-                        "La sintesi completa non viene avviata automaticamente oltre "
-                        f"{ISOLATED_SYNTHESIS_QUBIT_LIMIT} qubit: il limite prudenziale "
-                        f"è circa {cnot_upper_bound:,} CNOT, oltre alle rotazioni a un "
-                        "qubit. La transpilation per uno specifico backend fornirà i "
-                        "conteggi effettivi solo se il circuito supera il preflight."
+                        "Il circuito logico esatto, la classificazione test e la "
+                        "validazione restano disponibili. La sintesi gate-by-gate e "
+                        "l'optimizer sono invece disabilitati oltre "
+                        f"{ISOLATED_SYNTHESIS_QUBIT_LIMIT} qubit: per questa unitaria "
+                        f"generica il limite prudenziale è circa {cnot_upper_bound:,} "
+                        "CNOT, oltre alle rotazioni a un qubit. Questa separazione "
+                        "protegge l'interfaccia da tempi e memoria non prevedibili."
+                    )
+                    protected_columns = st.columns(2)
+                    protected_columns[0].button(
+                        "Sintetizza e mostra la decomposizione completa",
+                        disabled=True,
+                        width="stretch",
+                        key=f"native_disabled_{synthesis_id}",
+                    )
+                    protected_columns[1].button(
+                        "Ottimizza e certifica equivalenza",
+                        disabled=True,
+                        width="stretch",
+                        key=f"optimizer_disabled_{synthesis_id}",
+                    )
+                    st.caption(
+                        "Per attivare questi due comandi puoi richiedere una PCA "
+                        "manuale, ridurre il numero di copie oppure scegliere un "
+                        "dataset con meno classi. La PGM e le sue feature non vengono "
+                        "modificate automaticamente."
                     )
 
             with outcomes_tab:
@@ -3835,8 +4120,8 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 python_status = hardware_python_status()
                 st.caption(
                     f"Python {python_status['version']} · AWS Braket richiede Python "
-                    ">=3.11 · LRZ MQSS richiede Python >=3.9 e <3.14 · Aer, IBM e "
-                    "IonQ sono consigliati con Python >=3.10."
+                    ">=3.11 · LRZ MQSS richiede Python >=3.9 e <3.14 · Aer, IBM, "
+                    "IonQ e AQT sono consigliati con Python >=3.10."
                 )
 
                 sample_index = st.selectbox(
@@ -3892,6 +4177,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                 aws_session_token = ""
                 lrz_token = ""
                 ionq_token = ""
+                aqt_token = ""
                 ibm_token = ""
                 ibm_instance = ""
                 lrz_queue_offline = True
@@ -3903,7 +4189,12 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                         "Simulatore",
                         [
                             "💻 PGM ideale locale — campionamento diretto",
+                            "🧩 Qiskit BasicSimulator locale — circuito ideale",
                             "🧰 Qiskit Aer locale — circuito ideale o rumoroso",
+                            "🔷 IBM Fake Backend locale — rumore da snapshot QPU",
+                            "🟧 Amazon Braket Local — state vector o density matrix",
+                            "🟪 AQT Offline — ideale o rumoroso",
+                            "☁️ AQT Cloud — simulatori autorizzati",
                             "☁️ IonQ Cloud — ideale o modello di rumore",
                             "☁️ Amazon Braket — simulatore gestito AWS",
                         ],
@@ -4141,6 +4432,319 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                         prediction_title="Predizione Aer",
                                     )
 
+                    elif simulator_choice.startswith(("🧩", "🔷", "🟧", "🟪")):
+                        local_engine = ""
+                        local_backend_name = ""
+                        local_engine_ready = True
+                        local_qubit_limit = ISOLATED_SYNTHESIS_QUBIT_LIMIT
+                        local_shot_limit = 100_000
+
+                        if simulator_choice.startswith("🧩"):
+                            local_engine = "basic"
+                            local_backend_name = "basic_simulator"
+                            st.caption(
+                                "Simulatore di riferimento incluso in Qiskit. È ideale "
+                                "e più lento di Aer, ma non richiede componenti nativi "
+                                "aggiuntivi."
+                            )
+                            if not modules_available("qiskit"):
+                                local_engine_ready = False
+                                st.warning("Qiskit non è installato.")
+
+                        elif simulator_choice.startswith("🔷"):
+                            local_engine = "ibm_fake"
+                            st.caption(
+                                "Esecuzione locale con topologia, gate e snapshot di "
+                                "rumore di una QPU IBM. Non richiede token e non invia job."
+                            )
+                            if not modules_available(
+                                "qiskit_aer", "qiskit_ibm_runtime"
+                            ):
+                                local_engine_ready = False
+                                st.warning(
+                                    "IBM Fake Backend richiede Qiskit Aer e il provider "
+                                    "IBM già elencati in requirements.txt."
+                                )
+                            else:
+                                try:
+                                    fake_devices = discover_ibm_fake_backends(
+                                        min_num_qubits=resources.total_qubits,
+                                        max_num_qubits=32,
+                                    )
+                                except Exception as error:
+                                    fake_devices = ()
+                                    local_engine_ready = False
+                                    st.error(
+                                        "Lettura degli snapshot IBM non riuscita: "
+                                        f"{error}"
+                                    )
+                                if fake_devices:
+                                    fake_device = st.selectbox(
+                                        "Snapshot IBM",
+                                        fake_devices,
+                                        format_func=device_display_label,
+                                        key=f"ibm_fake_device_{synthesis_id}",
+                                    )
+                                    local_backend_name = fake_device.name
+                                    local_qubit_limit = int(
+                                        fake_device.qubits
+                                        or ISOLATED_SYNTHESIS_QUBIT_LIMIT
+                                    )
+                                    local_shot_limit = int(
+                                        fake_device.max_shots or 100_000
+                                    )
+                                else:
+                                    local_engine_ready = False
+                                    st.warning(
+                                        "Nessuno snapshot IBM locale compatibile con il "
+                                        "numero di qubit del circuito."
+                                    )
+
+                        elif simulator_choice.startswith("🟧"):
+                            local_engine = "braket_local"
+                            st.caption(
+                                "Amazon Braket eseguito interamente sul server dell'app: "
+                                "non richiede account AWS, S3 o credenziali."
+                            )
+                            if not python_status["aws_compatible"]:
+                                local_engine_ready = False
+                                st.warning(
+                                    "Amazon Braket Local richiede Python 3.11 o successivo."
+                                )
+                            elif not modules_available(
+                                "braket", "qiskit_braket_provider"
+                            ):
+                                local_engine_ready = False
+                                st.warning(
+                                    "Amazon Braket Local non è installato. Usa "
+                                    "`Installa_Provider_Quantistici.command` oppure "
+                                    "installa `requirements-aws.txt`."
+                                )
+                            else:
+                                braket_local_modes = {
+                                    "State vector (braket_sv)": "braket_sv",
+                                    "Density matrix (braket_dm)": "braket_dm",
+                                }
+                                braket_local_label = st.selectbox(
+                                    "Metodo Braket Local",
+                                    list(braket_local_modes),
+                                    key=f"braket_local_method_{synthesis_id}",
+                                )
+                                local_backend_name = braket_local_modes[
+                                    braket_local_label
+                                ]
+                                # AWS documents 25 qubits for braket_sv and 12
+                                # for braket_dm.  The global isolated-synthesis
+                                # guard may impose an even smaller limit.
+                                local_qubit_limit = (
+                                    12
+                                    if local_backend_name == "braket_dm"
+                                    else 25
+                                )
+
+                        else:
+                            local_engine = "aqt_offline"
+                            st.caption(
+                                "Simulatori AQT inclusi nel provider: uno ideale e uno "
+                                "con rumore. L'esecuzione è locale e non richiede token."
+                            )
+                            if not modules_available("qiskit_aqt_provider"):
+                                local_engine_ready = False
+                                st.warning(
+                                    "Provider AQT non installato. Usa "
+                                    "`Installa_Provider_Quantistici.command` oppure "
+                                    "installa `requirements-aqt.txt`."
+                                )
+                            else:
+                                aqt_offline_modes = {
+                                    "Ideale": "offline_simulator_no_noise",
+                                    "Rumoroso": "offline_simulator_noise",
+                                }
+                                aqt_offline_label = st.selectbox(
+                                    "Metodo AQT Offline",
+                                    list(aqt_offline_modes),
+                                    key=f"aqt_offline_method_{synthesis_id}",
+                                )
+                                local_backend_name = aqt_offline_modes[
+                                    aqt_offline_label
+                                ]
+                                local_qubit_limit = 20
+                                local_shot_limit = 2_000
+
+                        local_simulation_id = (
+                            f"{synthesis_id}|{local_engine}|{local_backend_name}|"
+                            f"{sample_index}|{shots}|{execution_seed}|auto123"
+                        )
+                        local_too_large = (
+                            resources.total_qubits
+                            > min(
+                                ISOLATED_SYNTHESIS_QUBIT_LIMIT,
+                                local_qubit_limit,
+                            )
+                        )
+                        local_too_many_shots = shots > local_shot_limit
+                        if local_too_large:
+                            st.error(
+                                "Simulazione disabilitata: il circuito supera il limite "
+                                f"sicuro di {min(ISOLATED_SYNTHESIS_QUBIT_LIMIT, local_qubit_limit)} "
+                                "qubit per questo motore."
+                            )
+                        if local_too_many_shots:
+                            st.error(
+                                f"Il simulatore selezionato accetta al massimo "
+                                f"{local_shot_limit:,} shot."
+                            )
+                        if st.button(
+                            "Ottimizza, certifica ed esegui sul simulatore selezionato",
+                            type="primary",
+                            disabled=(
+                                not local_engine_ready
+                                or not local_backend_name
+                                or local_too_large
+                                or local_too_many_shots
+                            ),
+                            key=f"extended_local_simulate_{local_simulation_id}",
+                        ):
+                            try:
+                                reference_sample_circuit = build_sample_circuit(
+                                    dilation,
+                                    test_states[sample_index],
+                                    name=(
+                                        f"PGM_test_{sample_index + 1}_reference"
+                                    ),
+                                    optimized_isometry=False,
+                                )
+                                with st.spinner(
+                                    "Ottimizzo in un processo isolato, certifico "
+                                    "l'equivalenza ed eseguo il circuito..."
+                                ):
+                                    local_attempts, local_best = (
+                                        certified_isometry_candidates(
+                                            isometry_matrix=dilation.isometry,
+                                            system_qubits=resources.system_qubits,
+                                            outcome_qubits=resources.outcome_qubits,
+                                            input_state=test_states[sample_index],
+                                            circuit_name=(
+                                                f"PGM_test_{sample_index + 1}"
+                                            ),
+                                            reference_qpy_payload=qpy_bytes(
+                                                reference_sample_circuit
+                                            ),
+                                            input_subspace_dimension=(
+                                                resources.padded_system_dimension
+                                            ),
+                                            timeout_seconds=300,
+                                            seed_transpiler=execution_seed,
+                                        )
+                                    )
+                                    local_counts = None
+                                    if local_best is not None:
+                                        if (
+                                            local_engine == "aqt_offline"
+                                            and local_best.size is not None
+                                            and local_best.size > 2_000
+                                        ):
+                                            raise ValueError(
+                                                "Il circuito supera il limite AQT di "
+                                                "2.000 porte."
+                                            )
+                                        executable_circuit = circuit_from_qpy(
+                                            local_best.transpiled_qpy
+                                        )
+                                        if local_engine == "basic":
+                                            local_counts = simulate_basic_shots(
+                                                executable_circuit,
+                                                shots=shots,
+                                                seed=execution_seed,
+                                                optimization_level=0,
+                                            )
+                                        elif local_engine == "ibm_fake":
+                                            local_counts = simulate_ibm_fake_shots(
+                                                executable_circuit,
+                                                backend_name=local_backend_name,
+                                                shots=shots,
+                                                seed=execution_seed,
+                                                optimization_level=1,
+                                            )
+                                        elif local_engine == "braket_local":
+                                            local_counts = simulate_braket_local_shots(
+                                                executable_circuit,
+                                                backend_name=local_backend_name,
+                                                shots=shots,
+                                                seed=execution_seed,
+                                                optimization_level=1,
+                                            )
+                                        else:
+                                            local_counts = simulate_aqt_offline_shots(
+                                                executable_circuit,
+                                                backend_name=local_backend_name,
+                                                shots=shots,
+                                                optimization_level=1,
+                                            )
+                                st.session_state["extended_local_quantum_result"] = {
+                                    "id": local_simulation_id,
+                                    "sample_index": sample_index,
+                                    "counts": local_counts,
+                                    "best": local_best,
+                                    "attempts": local_attempts,
+                                    "engine": local_engine,
+                                    "backend": local_backend_name,
+                                }
+                            except Exception as error:
+                                st.error(
+                                    "Simulazione locale non riuscita: "
+                                    + safe_error_message(error)
+                                )
+
+                        extended_result = st.session_state.get(
+                            "extended_local_quantum_result"
+                        )
+                        if (
+                            extended_result
+                            and extended_result["id"] == local_simulation_id
+                        ):
+                            with st.expander(
+                                "Confronto automatico dei livelli 1, 2 e 3",
+                                expanded=False,
+                            ):
+                                st.dataframe(
+                                    optimization_attempts_frame(
+                                        extended_result["attempts"]
+                                    ),
+                                    hide_index=True,
+                                    width="stretch",
+                                )
+                            local_best = extended_result["best"]
+                            if local_best is None:
+                                st.error(
+                                    "Nessun circuito candidato ha superato la "
+                                    "certificazione: la simulazione non è stata eseguita."
+                                )
+                            else:
+                                st.success(
+                                    f"{extended_result['backend']} ha eseguito il "
+                                    "migliore circuito certificato: livello "
+                                    f"{local_best.optimization_level}, "
+                                    f"{entangling_gate_count(local_best):,} gate "
+                                    f"entangling, profondità {local_best.depth:,}."
+                                )
+                                result_sample = int(
+                                    extended_result["sample_index"]
+                                )
+                                render_execution_result(
+                                    extended_result["counts"],
+                                    classes=classes,
+                                    theoretical_outcomes=(
+                                        circuit_probabilities[result_sample]
+                                    ),
+                                    outcome_qubits=resources.outcome_qubits,
+                                    actual_class=payload["y_test"][result_sample],
+                                    prediction_title="Predizione simulatore",
+                                )
+
+                    elif simulator_choice.startswith("☁️ AQT"):
+                        selected_provider = "aqt_simulator"
+                        is_paid_external_resource = True
                     elif simulator_choice.startswith("☁️ IonQ"):
                         selected_provider = "ionq_simulator"
                         is_paid_external_resource = True
@@ -4340,6 +4944,74 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     devices,
                                     format_func=device_display_label,
                                     key=f"aws_device_{connection_id}",
+                                )
+
+                elif selected_provider == "aqt_simulator":
+                    st.markdown("###### Connessione ai simulatori AQT Cloud")
+                    st.info(
+                        "AQT usa un access token del portale AQT. L'app mostra "
+                        "soltanto i simulatori autorizzati per l'account; i simulatori "
+                        "offline senza token sono disponibili nella voce separata AQT "
+                        "Offline."
+                    )
+                    if not python_status["extended_providers_compatible"]:
+                        st.error("AQT richiede Python 3.10 o successivo.")
+                    elif not modules_available("qiskit_aqt_provider"):
+                        st.warning(
+                            "Provider AQT non installato. Usa "
+                            "`Installa_Provider_Quantistici.command` oppure installa "
+                            "`requirements-aqt.txt`."
+                        )
+                    else:
+                        default_aqt_token = configured_secret("AQT_TOKEN")
+                        aqt_token = st.text_input(
+                            "AQT access token",
+                            value=default_aqt_token,
+                            type="password",
+                            key=f"aqt_token_{synthesis_id}",
+                        )
+                        aqt_fingerprint = hashlib.sha256(
+                            aqt_token.encode("utf-8")
+                        ).hexdigest()[:12]
+                        aqt_connection_id = (
+                            f"{synthesis_id}|aqt_simulator|{aqt_fingerprint}"
+                        )
+                        if st.button(
+                            "Connetti e aggiorna simulatori AQT",
+                            disabled=not bool(aqt_token),
+                            key=f"aqt_connect_{aqt_connection_id}",
+                        ):
+                            try:
+                                with st.spinner(
+                                    "Lettura dei simulatori AQT autorizzati..."
+                                ):
+                                    aqt_devices = discover_aqt_simulators(
+                                        aqt_token,
+                                        offline=False,
+                                    )
+                                st.session_state["aqt_devices"] = {
+                                    "id": aqt_connection_id,
+                                    "devices": aqt_devices,
+                                }
+                            except Exception as error:
+                                st.error(
+                                    "Connessione AQT non riuscita: "
+                                    + safe_error_message(error, aqt_token)
+                                )
+                        saved_aqt = st.session_state.get("aqt_devices")
+                        if saved_aqt and saved_aqt["id"] == aqt_connection_id:
+                            aqt_devices = saved_aqt["devices"]
+                            if not aqt_devices:
+                                st.warning(
+                                    "Nessun simulatore AQT Cloud è autorizzato per "
+                                    "questo account. AQT Offline resta disponibile."
+                                )
+                            else:
+                                selected_device = st.selectbox(
+                                    "Simulatore AQT Cloud",
+                                    aqt_devices,
+                                    format_func=device_display_label,
+                                    key=f"aqt_device_{aqt_connection_id}",
                                 )
 
                 elif selected_provider == "lrz":
@@ -4792,14 +5464,14 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     )
 
                                 if (
-                                    selected_provider == "lrz"
+                                    selected_provider in {"lrz", "aqt_simulator"}
                                     and preflight_report.size is not None
                                     and preflight_report.size > 2_000
                                 ):
                                     st.warning(
                                         "Il circuito supera 2.000 porte, limite noto per "
-                                        "alcune risorse LRZ; altri backend possono avere "
-                                        "limiti differenti."
+                                        "alcune risorse AQT/LRZ; altri backend possono "
+                                        "avere limiti differenti."
                                     )
 
                                 confirmation_messages = {
@@ -4818,6 +5490,11 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     "ionq_simulator": (
                                         "Confermo di voler inviare un job IonQ che può "
                                         "usare quota o generare costi."
+                                    ),
+                                    "aqt_simulator": (
+                                        "Confermo di voler inviare il job al simulatore "
+                                        "AQT Cloud selezionato e di accettarne quota o "
+                                        "costi."
                                     ),
                                     "ionq_qpu": (
                                         "Confermo di voler inviare il job alla QPU IonQ "
@@ -4852,6 +5529,7 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                     secret_for_error = (
                                         lrz_token
                                         or ionq_token
+                                        or aqt_token
                                         or ibm_token
                                         or aws_secret_access_key
                                         or None
@@ -4878,6 +5556,26 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
                                                     backend_name=selected_device.name,
                                                     shots=shots,
                                                     queued=lrz_queue_offline,
+                                                )
+                                            elif selected_provider == "aqt_simulator":
+                                                if not aqt_token:
+                                                    raise ValueError(
+                                                        "Reinserire il token AQT."
+                                                    )
+                                                job, job_id = submit_aqt_job(
+                                                    executable_circuit,
+                                                    token=aqt_token,
+                                                    backend_name=selected_device.name,
+                                                    shots=shots,
+                                                    optimization_level=(
+                                                        native_optimization_level
+                                                    ),
+                                                    workspace=(
+                                                        selected_device.region
+                                                        if selected_device.region
+                                                        != "AQT Cloud"
+                                                        else None
+                                                    ),
                                                 )
                                             elif selected_provider in {
                                                 "ionq_simulator",
@@ -5083,16 +5781,36 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
             circuit_drawing = translate_text(
                 circuit_svg(dilation), current_language()
             )
+            actual_feature_suggestion = largest_manual_feature_count_for_circuit(
+                copies=copies,
+                class_count=int(payload["class_count"]),
+                qubit_limit=EXACT_CIRCUIT_QUBIT_LIMIT,
+                maximum_base_features=int(payload["raw_d"]),
+            )
             st.warning(
                 "Per questa configurazione la dilatazione avrebbe una matrice densa "
                 f"{resources.unitary_dimension:,} x {resources.unitary_dimension:,} "
                 f"({human_bytes(resources.unitary_bytes)} in complex128). Per proteggere "
                 "la memoria, l'app mostra l'architettura dimensionata ma non materializza "
                 "U_PGM. I risultati classici, la matrice di confusione e il dettaglio "
-                "dei campioni restano disponibili sopra. Per ottenere il circuito "
-                "esatto esportabile puoi richiedere manualmente una PCA con meno "
-                "componenti oppure ridurre il numero di copie."
+                "dei campioni restano disponibili sopra."
             )
+            if actual_feature_suggestion > 0:
+                st.info(
+                    "Per attivare il circuito esatto con le copie e le classi "
+                    "correnti, abilita volontariamente la PCA nella sezione 1 e "
+                    "imposta al massimo "
+                    f"{actual_feature_suggestion} componenti. In alternativa riduci "
+                    "il numero di copie. Nessuna feature viene ridotta "
+                    "automaticamente."
+                )
+            else:
+                st.info(
+                    "Con il numero corrente di copie e classi, neppure una PCA a una "
+                    "componente rientra nel limite sicuro. Riduci il numero di copie "
+                    "oppure usa un dataset con meno classi; la classificazione PGM "
+                    "classica resta comunque completa."
+                )
             st.markdown(circuit_drawing, unsafe_allow_html=True)
             st.caption(
                 "Schema logico dimensionato; U_PGM_symbolic indica la matrice non "
@@ -5100,6 +5818,38 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
             )
             st.markdown("**Corrispondenza tra esiti e classi**")
             st.dataframe(outcome_table, hide_index=True, width="stretch")
+            with st.container(
+                border=True,
+                key=(
+                    f"quantum_unavailable_{selected_key}_{copies}_"
+                    f"{int(random_seed)}"
+                ),
+            ):
+                st.markdown("#### Strumenti quantistici non attivi per questa configurazione")
+                st.write(
+                    "Le funzioni restano visibili, ma richiedono la matrice esatta "
+                    "U_PGM. Il blocco evita che un calcolo denso eccessivo interrompa "
+                    "l'intera applicazione."
+                )
+                unavailable_columns = st.columns(3)
+                unavailable_columns[0].button(
+                    "Sintetizza il circuito",
+                    disabled=True,
+                    width="stretch",
+                    key=f"symbolic_synthesis_disabled_{selected_key}_{copies}",
+                )
+                unavailable_columns[1].button(
+                    "Ottimizza e certifica",
+                    disabled=True,
+                    width="stretch",
+                    key=f"symbolic_optimizer_disabled_{selected_key}_{copies}",
+                )
+                unavailable_columns[2].button(
+                    "Configura simulatore o QPU",
+                    disabled=True,
+                    width="stretch",
+                    key=f"symbolic_execution_disabled_{selected_key}_{copies}",
+                )
     except ImportError as error:
         st.error(
             "Manca una dipendenza necessaria per disegnare il circuito. Ferma l'app "
@@ -5125,6 +5875,39 @@ if saved_run and saved_run["configuration_key"] == configuration_key:
 elif saved_run:
     st.info("Le impostazioni sono cambiate: premi il pulsante per calcolare il nuovo caso.")
 
+if not current_run_available:
+    render_section_banner(
+        "Sezione 5 · laboratorio quantistico",
+        "5. Circuito quantistico della PGM",
+        "Circuito logico, classificazione, validazione, optimizer, simulatori, QPU ed export in un unico spazio protetto.",
+    )
+    render_quantum_tool_strip()
+    with st.container(border=True, key="quantum_laboratory_placeholder"):
+        st.info(
+            "Esegui prima la valutazione PGM nella sezione immediatamente precedente. "
+            "Il laboratorio si attiverà senza avviare automaticamente sintesi, "
+            "optimizer, simulatori o QPU."
+        )
+        placeholder_columns = st.columns(3)
+        placeholder_columns[0].button(
+            "Visualizza il circuito logico",
+            disabled=True,
+            width="stretch",
+            key="placeholder_logical_circuit_disabled",
+        )
+        placeholder_columns[1].button(
+            "Ottimizza e certifica equivalenza",
+            disabled=True,
+            width="stretch",
+            key="placeholder_optimizer_disabled",
+        )
+        placeholder_columns[2].button(
+            "Configura simulatore o QPU",
+            disabled=True,
+            width="stretch",
+            key="placeholder_execution_disabled",
+        )
+
 st.divider()
 st.caption(
     "Nota: r-PGM è il nome breve usato qui per il reduced c-PGM (Rc-PGM) del paper. "
@@ -5132,7 +5915,11 @@ st.caption(
 )
 
 st.divider()
-st.subheader("Guida illustrata all'uso")
+render_section_banner(
+    "Documentazione",
+    "Guida illustrata all'uso",
+    "Manuale bilingue aggiornato con flusso operativo, interpretazione dei risultati, circuito e provider.",
+)
 st.caption(
     "Scarica la guida completa nella lingua attiva: contiene il percorso passo passo, "
     "illustrazioni dell'interfaccia, interpretazione statistica, circuito quantistico, "

@@ -17,11 +17,13 @@ read -r -s -p "Token LRZ MQSS: " LRZ_VALUE
 echo
 read -r -s -p "IonQ API key: " IONQ_VALUE
 echo
+read -r -s -p "AQT access token: " AQT_VALUE
+echo
 read -r -s -p "IBM Quantum API key: " IBM_VALUE
 echo
 read -r -p "IBM Quantum instance CRN: " IBM_INSTANCE_VALUE
 
-export LRZ_VALUE IONQ_VALUE IBM_VALUE IBM_INSTANCE_VALUE SECRETS_FILE="$secrets_file"
+export LRZ_VALUE IONQ_VALUE AQT_VALUE IBM_VALUE IBM_INSTANCE_VALUE SECRETS_FILE="$secrets_file"
 python3 - <<'PY'
 from __future__ import annotations
 
@@ -34,12 +36,14 @@ path = Path(os.environ["SECRETS_FILE"])
 keys = (
     "LRZ_MQSS_TOKEN",
     "IONQ_API_KEY",
+    "AQT_TOKEN",
     "QISKIT_IBM_TOKEN",
     "QISKIT_IBM_INSTANCE",
 )
 submitted = {
     "LRZ_MQSS_TOKEN": os.environ.get("LRZ_VALUE", ""),
     "IONQ_API_KEY": os.environ.get("IONQ_VALUE", ""),
+    "AQT_TOKEN": os.environ.get("AQT_VALUE", ""),
     "QISKIT_IBM_TOKEN": os.environ.get("IBM_VALUE", ""),
     "QISKIT_IBM_INSTANCE": os.environ.get("IBM_INSTANCE_VALUE", ""),
 }
@@ -74,7 +78,7 @@ for key in keys:
 path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 status=$?
-unset LRZ_VALUE IONQ_VALUE IBM_VALUE IBM_INSTANCE_VALUE SECRETS_FILE
+unset LRZ_VALUE IONQ_VALUE AQT_VALUE IBM_VALUE IBM_INSTANCE_VALUE SECRETS_FILE
 
 if [ "$status" -eq 0 ]; then
   chmod 600 "$secrets_file"

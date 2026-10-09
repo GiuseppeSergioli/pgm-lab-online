@@ -30,8 +30,8 @@ from reportlab.platypus import (
 )
 
 
-APP_VERSION = "5.3.0"
-GUIDE_RELEASE_DATE = "2026-10-08"
+APP_VERSION = "5.5.0"
+GUIDE_RELEASE_DATE = "2026-10-09"
 APP_URL = "https://pgm-lab-sergioli.streamlit.app/"
 PAGE_WIDTH, PAGE_HEIGHT = A4
 MARGIN_X = 17 * mm
@@ -97,7 +97,7 @@ TEXTS: dict[str, GuideText] = {
         file_name="PGM_Lab_Guida_Illustrata_IT.pdf",
         title="PGM Lab",
         subtitle="Guida illustrata all'uso dell'app",
-        updated="Aggiornata alla versione 5.3.0 - 8 ottobre 2026",
+        updated="Aggiornata alla versione 5.5.0 - 9 ottobre 2026",
         sections={
             "cover_note": (
                 "Dalla scelta del dataset alla PGM, dal confronto statistico al "
@@ -117,7 +117,8 @@ TEXTS: dict[str, GuideText] = {
                 "PGM Lab confronta c-PGM, k-PGM e r-PGM, tre realizzazioni "
                 "matematicamente equivalenti del Pretty Good Measurement classifier. "
                 "L'interfaccia seleziona il backend esatto meno oneroso senza cambiare "
-                "la regola di decisione."
+                "la regola di decisione. La mappa delle attività rende visibili fin "
+                "dall'inizio valutazione, confronto e laboratorio quantistico."
             ),
             "ui_map": "Mappa della pagina",
             "quick": "Percorso consigliato in 6 passi",
@@ -125,9 +126,9 @@ TEXTS: dict[str, GuideText] = {
                 "Scegli un dataset pubblico oppure carica il tuo file.",
                 "Imposta il numero di copie c e, se serve, il budget RAM.",
                 "Controlla dimensioni, backend previsto e fattibilità.",
-                "Avvia la valutazione multi-seed PGM.",
-                "Leggi metriche, deviazioni standard, confusion matrix e campioni.",
-                "Solo se necessario, confronta modelli o costruisci/esegui il circuito.",
+                "Se lo desideri, abilita il confronto opzionale della sezione 3.",
+                "Premi la valutazione multi-seed subito prima della sezione 4.",
+                "Leggi i risultati e apri soltanto gli strumenti quantum necessari.",
             ],
             "language": (
                 "Le bandiere in alto a destra cambiano l'intera interfaccia. Dati, "
@@ -186,14 +187,17 @@ TEXTS: dict[str, GuideText] = {
             ),
             "dimension_note": (
                 "Se il circuito è troppo grande, la classificazione classica può restare "
-                "disponibile. Il circuito esatto è materializzato fino a 9 qubit; la "
-                "sintesi completa automatica è limitata prudenzialmente a 7 qubit."
+                "disponibile. Il circuito esatto è materializzato fino a 10 qubit; "
+                "sintesi, optimizer ed esecuzione gate-by-gate sono limitati "
+                "prudenzialmente a 8 qubit. L'app propone una PCA solo come scelta "
+                "manuale, indicando il massimo numero di componenti compatibile."
             ),
             "results_title": "4. Eseguire la PGM e interpretare i risultati",
             "results_intro": (
-                "Premi Esegui la valutazione multi-seed. Il riepilogo principale usa "
-                "media e deviazione standard su tutti gli split; un singolo seed di "
-                "riferimento serve soltanto per diagnostica, campioni e circuito."
+                "Dopo l'eventuale confronto opzionale, premi Esegui la valutazione "
+                "multi-seed nel riquadro subito precedente la sezione 4. Il riepilogo "
+                "usa media e deviazione standard su tutti gli split; un singolo seed "
+                "di riferimento serve soltanto per diagnostica, campioni e circuito."
             ),
             "metrics_rows": [
                 ["Balanced accuracy", "media del recall delle classi; utile con classi sbilanciate"],
@@ -232,16 +236,21 @@ TEXTS: dict[str, GuideText] = {
             "circuit_points": [
                 "La tabella bitstring-classe indica, per esempio, 000 -> classe 1.",
                 "Le probabilità circuitali sono confrontate con quelle teoriche.",
+                "Tutte le attività restano visibili; quelle fuori limite sono disabilitate.",
                 "La decomposizione completa è isolata dal processo Streamlit.",
                 "I livelli di ottimizzazione 1, 2 e 3 vengono confrontati.",
                 "Un circuito è accettato solo se l'equivalenza numerica è certificata.",
-                "Se il disegno è enorme, restano gate count, profondità e download QPY.",
+                "Se il disegno è enorme, restano conteggi, profondità e download QPY.",
             ],
             "quantum_title": "7. Simulatori, cloud e computer quantistici reali",
             "provider_rows": [
-                ["Locale", "campionatore PGM ideale; Qiskit Aer"],
+                ["PGM ideale", "campionamento diretto della distribuzione teorica"],
+                ["Qiskit locale", "BasicSimulator; Aer ideale, MPS o density matrix"],
+                ["IBM Fake", "snapshot locale di topologia, gate e rumore QPU"],
+                ["Braket Local", "state vector o density matrix senza account AWS"],
+                ["AQT", "offline ideale/rumoroso; simulatori cloud con token"],
                 ["LRZ / MQSS", "risorse autorizzate restituite dinamicamente"],
-                ["IBM Quantum", "simulatori o QPU disponibili per l'account"],
+                ["IBM Quantum", "QPU disponibili per l'account"],
                 ["IonQ Cloud", "simulatori e QPU IonQ"],
                 ["Amazon Braket", "simulatori gestiti e QPU supportate"],
             ],
@@ -295,7 +304,7 @@ TEXTS: dict[str, GuideText] = {
         file_name="PGM_Lab_Illustrated_User_Guide_EN.pdf",
         title="PGM Lab",
         subtitle="Illustrated user guide",
-        updated="Updated for version 5.3.0 - 8 October 2026",
+        updated="Updated for version 5.5.0 - 9 October 2026",
         sections={
             "cover_note": (
                 "From dataset selection to the PGM, from statistical comparison to "
@@ -315,7 +324,8 @@ TEXTS: dict[str, GuideText] = {
                 "PGM Lab compares c-PGM, k-PGM, and r-PGM, three mathematically "
                 "equivalent realizations of the Pretty Good Measurement classifier. "
                 "The interface selects the least expensive exact backend without "
-                "changing the decision rule."
+                "changing the decision rule. The activity map makes evaluation, "
+                "comparison, and the quantum laboratory visible from the start."
             ),
             "ui_map": "Page map",
             "quick": "Recommended path in 6 steps",
@@ -323,9 +333,9 @@ TEXTS: dict[str, GuideText] = {
                 "Choose a public dataset or upload your own file.",
                 "Set the copy number c and, if needed, the RAM budget.",
                 "Check dimensions, expected backend, and feasibility.",
-                "Run the multi-seed PGM evaluation.",
-                "Read metrics, standard deviations, confusion matrix, and samples.",
-                "Only when needed, compare models or build and execute the circuit.",
+                "Optionally enable the classifier comparison in Section 3.",
+                "Run the multi-seed evaluation immediately before Section 4.",
+                "Read results and open only the quantum tools you need.",
             ],
             "language": (
                 "The flags in the upper-right corner switch the entire interface. Data, "
@@ -383,12 +393,15 @@ TEXTS: dict[str, GuideText] = {
             ),
             "dimension_note": (
                 "When the circuit is too large, classical classification may remain "
-                "available. The exact circuit is materialized up to 9 qubits; automatic "
-                "full synthesis is prudently limited to 7 qubits."
+                "available. The exact circuit is materialized up to 10 qubits; "
+                "synthesis, the optimizer, and gate-by-gate execution are conservatively "
+                "limited to 8 qubits. The app offers PCA only as a manual choice and "
+                "reports the largest compatible component count."
             ),
             "results_title": "4. Running the PGM and interpreting results",
             "results_intro": (
-                "Press Run the multi-seed evaluation. The main summary uses mean and "
+                "After any optional comparison, press Run the multi-seed evaluation in "
+                "the panel immediately before Section 4. The summary uses mean and "
                 "standard deviation across all splits; one reference seed is used only "
                 "for diagnostics, sample details, and circuit construction."
             ),
@@ -429,16 +442,21 @@ TEXTS: dict[str, GuideText] = {
             "circuit_points": [
                 "The bitstring-to-class table shows mappings such as 000 -> class 1.",
                 "Circuit probabilities are compared with theoretical probabilities.",
+                "Every activity remains visible; tools above the limits are disabled.",
                 "Full decomposition runs outside the Streamlit process.",
                 "Optimization levels 1, 2, and 3 are compared.",
                 "A circuit is accepted only after numerical equivalence certification.",
-                "For huge diagrams, gate count, depth, and QPY download remain available.",
+                "For huge diagrams, counts, depth, and QPY download remain available.",
             ],
-            "quantum_title": "7. Simulators, cloud services, and real QPUs",
+            "quantum_title": "7. Quantum simulators, cloud, and QPUs",
             "provider_rows": [
-                ["Local", "ideal PGM sampler; Qiskit Aer"],
+                ["Ideal PGM", "direct sampling of the theoretical distribution"],
+                ["Local Qiskit", "BasicSimulator; ideal, MPS, or density-matrix Aer"],
+                ["IBM Fake", "local QPU topology, gate, and noise snapshot"],
+                ["Braket Local", "state vector or density matrix without an AWS account"],
+                ["AQT", "ideal/noisy offline; token-based cloud simulators"],
                 ["LRZ / MQSS", "authorized resources discovered dynamically"],
-                ["IBM Quantum", "simulators or QPUs available to the account"],
+                ["IBM Quantum", "QPUs available to the account"],
                 ["IonQ Cloud", "IonQ simulators and QPUs"],
                 ["Amazon Braket", "managed simulators and supported QPUs"],
             ],

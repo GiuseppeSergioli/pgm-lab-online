@@ -1,6 +1,6 @@
 {
-  "app_version": "5.3.0",
-  "generated_on": "2026-10-08",
+  "app_version": "5.5.0",
+  "generated_on": "2026-10-09",
   "generator": "scripts/generate_user_guides.py",
   "files": {
     "it": "PGM_Lab_Guida_Illustrata_IT.pdf",

@@ -1,6 +1,6 @@
 # PGM Lab: c-PGM, k-PGM e r-PGM
 
-**Versione 5.3.0**
+**Versione 5.5.0**
 
 Applicazione Streamlit per confrontare le tre formulazioni equivalenti descritte in
 *Computational Complexity Analysis of Quantum-Inspired Pretty Good Measurement
@@ -16,6 +16,50 @@ L'app mostra accuratezza, accordo campione-per-campione, scarto tra gli score,
 rank numerico, tempi osservati e complessità teoriche di tempo e memoria. Dopo il
 training costruisce inoltre una dilatazione di Naimark della PGM, ne disegna il
 circuito Qiskit e verifica le sue probabilità sul test set.
+
+## Novità della versione 5.5.0
+
+- il comando principale **Esegui la valutazione multi-seed** è stato spostato
+  subito prima dei risultati PGM, dopo il confronto opzionale, così comando e
+  output appartengono allo stesso flusso visivo;
+- sezioni, pulsanti e schede sono ora separati da contenitori più leggibili e i
+  controlli interattivi hanno un contrasto lievemente maggiore, mantenendo il
+  tema sobrio e responsivo;
+- una mappa delle attività e il laboratorio quantistico mostrano fin dall'inizio
+  circuito logico, classificazione test, validazione, optimizer, esecuzione ed
+  export. I comandi non ancora utilizzabili restano visibili ma disabilitati;
+- il limite prudenziale per materializzare la dilatazione esatta è stato esteso
+  da 9 a 10 qubit. Sintesi, optimizer ed esecuzione gate-by-gate restano isolati
+  e limitati a 8 qubit; il campionamento ideale può essere usato anche quando la
+  sintesi è troppo onerosa;
+- quando un circuito resta troppo grande, l'app non riduce mai le feature da sola:
+  mantiene la classificazione completa, mostra lo schema dimensionato e indica
+  il massimo numero di componenti PCA che l'utente può scegliere volontariamente;
+- accanto ai selettori di lingua è presente un piccolo badge illustrato del
+  progetto. Le guide bilingui e i test di interfaccia sono allineati alla nuova
+  organizzazione;
+- tutti i simulatori e provider della versione 5.4.0 restano invariati. Non sono
+  state modificate formule, preprocessing, selezione dell'encoding, score o
+  predizioni della PGM.
+
+## Novità della versione 5.4.0
+
+- il menu dei simulatori è stato ampliato senza modificare classificazione,
+  preprocessing, dataset, circuiti o provider hardware già presenti;
+- oltre al campionatore PGM ideale e a Qiskit Aer sono disponibili Qiskit
+  BasicSimulator, IBM Fake Backend con snapshot di rumore, Amazon Braket Local
+  state-vector e density-matrix, AQT Offline ideale/rumoroso e AQT Cloud;
+- i simulatori IBM, Braket Local e AQT Offline non richiedono credenziali; AQT
+  Cloud usa un token personale e mostra dinamicamente soltanto le risorse
+  autorizzate;
+- ogni nuovo motore riceve esclusivamente un circuito che ha superato la stessa
+  ottimizzazione isolata e certificazione numerica già usata da Aer e dai
+  provider remoti;
+- disponibilità dei moduli, qubit, shot e limiti AQT vengono controllati prima
+  dell'esecuzione. Un provider assente o non raggiungibile produce un messaggio
+  locale e non interrompe l'app;
+- dipendenze, installer macOS, configuratore delle credenziali, interfaccia
+  bilingue, test automatici e guide PDF sono allineati alla nuova versione.
 
 ## Novità della versione 5.3.0
 
@@ -89,7 +133,7 @@ delle feature introdotte nella 5.2.0.
 
 Le sezioni successive costituiscono il changelog storico; quando descrivono una
 modalità automatica quantum-ready precedente, tale comportamento è sostituito
-dalle regole della versione 5.3.0.
+dalle regole della versione 5.5.0.
 
 ## Correzione della versione 5.1.1
 
@@ -429,7 +473,7 @@ Nell'interfaccia sono disponibili:
 - i residui numerici di completezza, isometria, unitarietà e regola di Born;
 - il confronto tra le predizioni del circuito e quelle di r-PGM;
 - il download del diagramma SVG, del circuito QPY e delle matrici NPZ;
-- fino a 7 qubit, una sintesi isolata nella base generica `rz`, `sx`, `x`, `cx`;
+- fino a 8 qubit, una sintesi isolata nella base generica `rz`, `sx`, `x`, `cx`;
 - l'ottimizzazione isometrica con confronto originale/ottimizzato e certificato
   di equivalenza sull'intero sottospazio PGM;
 - il circuito completo su più righe fino a 5.000 porte e, oltre tale soglia, il
@@ -440,12 +484,13 @@ limitati. Un eventuale errore nativo del transpiler non può quindi terminare il
 server Streamlit: l'app mostra l'errore e conserva training e risultati.
 
 La matrice di un'unitaria generica occupa memoria esponenziale. Per questo la
-materializzazione esatta è limitata a 9 qubit totali. Oltre tale soglia l'app mostra
+materializzazione esatta è limitata a 10 qubit totali. Oltre tale soglia l'app mostra
 lo schema dimensionato e la memoria richiesta, ma non alloca la matrice. Se il
 circuito supera il proprio preflight mentre il backend classico k-PGM/r-PGM resta
 sicuro, la classificazione rimane disponibile con tutte le feature; per ottenere
 anche il circuito esatto, l'utente può ridurre le copie oppure richiedere
-esplicitamente una PCA manuale.
+esplicitamente una PCA manuale. L'interfaccia calcola e mostra il massimo numero
+di componenti compatibile senza applicare alcuna riduzione automatica.
 
 Il circuito logico mostrato implementa la **misura PGM** e assume che lo stato test
 sia già preparato nel registro `sys`. Prima di un'esecuzione su simulatore remoto o
