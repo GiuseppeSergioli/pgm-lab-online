@@ -1,8 +1,8 @@
 # Stack numerico bloccato: evita che un rebuild cloud installi combinazioni
 # native non ancora validate, che possono terminare con Segmentation fault.
 numpy==1.26.4
-# AQT 1.15 richiede SciPy >=1.15; 1.15.3 conserva il supporto a Python 3.11
-# ed e compatibile con NumPy 1.26, scikit-learn 1.5 e Qiskit 1.4.
+# SciPy 1.15.3 conserva il supporto a Python 3.11 ed e compatibile con
+# NumPy 1.26, scikit-learn 1.5 e Qiskit 1.4.
 scipy==1.15.3
 pandas==2.2.3
 scikit-learn==1.5.2
@@ -19,8 +19,11 @@ qiskit-aer==0.17.2
 # Provider cloud compatibili con Qiskit 1.4.x. Le versioni sono bloccate per
 # impedire che un rebuild installi automaticamente release basate su Qiskit 2.x.
 qiskit-ionq==0.6.1
-# AQT: simulatori locali ideali/rumorosi e risorse cloud accessibili con token.
-qiskit-aqt-provider==1.15.0; python_version >= "3.9" and python_version < "3.14"
+# AQT: la serie 1.13 mantiene simulatori locali e cloud ed evita il conflitto
+# Pydantic tra aqt-connector 0.3 (AQT 1.15) e IBM Runtime 0.37.
+qiskit-aqt-provider==1.13.0; python_version >= "3.9" and python_version < "3.14"
+# Intersezione stabile: AQT 1.13 usa Pydantic v2, IBM Runtime 0.37 richiede <2.10.
+pydantic==2.9.2
 qiskit-ibm-runtime==0.37.0
 
 # Amazon Braket. joblib resta a 1.5.2 per essere compatibile con la versione di
