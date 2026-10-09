@@ -1,7 +1,9 @@
 # Stack numerico bloccato: evita che un rebuild cloud installi combinazioni
 # native non ancora validate, che possono terminare con Segmentation fault.
 numpy==1.26.4
-scipy==1.13.1
+# AQT 1.15 richiede SciPy >=1.15; 1.15.3 conserva il supporto a Python 3.11
+# ed e compatibile con NumPy 1.26, scikit-learn 1.5 e Qiskit 1.4.
+scipy==1.15.3
 pandas==2.2.3
 scikit-learn==1.5.2
 joblib==1.5.2
